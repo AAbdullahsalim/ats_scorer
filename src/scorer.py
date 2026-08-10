@@ -24,42 +24,16 @@ class HybridScorer:
         return [max(0.0, float(score)) for score in similarities]
 
     def compute_bm25_scores(self, jd_text: str, cv_texts: list[str]) -> list[float]:
-        """Calculates absolute BM25 keyword match score normalized to a Perfect CV."""
+        """Calculates BM25 keyword match score normalized to range [0, 1]."""
         tokenized_cvs = [self._tokenize(cv) for cv in cv_texts]
         tokenized_jd = self._tokenize(jd_text)
 
-        # 1. Create a "Perfect CV" (which is just the JD itself) 
-        # This establishes the maximum theoretical score possible.
-        perfect_cv = tokenized_jd
+        bm25 = BM25Okapi(tokenized_cvs)
+        doc_scores = bm25.get_scores(tokenized_jd)
 
-        # 2. Add Dummy CVs to stabilize IDF 
-        # This prevents negative scores when processing a small number of candidates.
-        dummy_corpus = [[] for _ in range(100)] 
-        
-        # Build the final corpus: Real CVs + Perfect CV + Dummies
-        full_corpus = tokenized_cvs + [perfect_cv] + dummy_corpus
-
-        bm25 = BM25Okapi(full_corpus)
-        
-        # Score everyone against the JD
-        all_scores = bm25.get_scores(tokenized_jd)
-        
-        # The scores for the real CVs are at the beginning of the list
-        cv_scores = all_scores[:len(tokenized_cvs)]
-        
-        # The score for the Perfect CV is located right after the real CVs
-        perfect_score = all_scores[len(tokenized_cvs)]
-
-        # 3. Absolute Normalization
-        # Divide candidate score by perfect score, capped at 1.0 (100%)
-        normalized_scores = []
-        for score in cv_scores:
-            if perfect_score > 0:
-                norm = max(0.0, min(float(score / perfect_score), 1.0))
-            else:
-                norm = 0.0
-            normalized_scores.append(norm)
-
+        # Min-Max Normalization to bring scores between 0 and 1
+        max_score = max(doc_scores) if len(doc_scores) > 0 and max(doc_scores) > 0 else 1.0
+        normalized_scores = [float(score / max_score) for score in doc_scores]
         return normalized_scores
 
     def score_candidates(
