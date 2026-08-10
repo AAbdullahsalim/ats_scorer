@@ -1,7 +1,9 @@
 import re
 import numpy as np
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util
+from datetime import datetime
+from typing import List, Dict
 
 class HybridScorer:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
@@ -18,7 +20,6 @@ class HybridScorer:
         jd_embedding = self.vector_model.encode(jd_text, convert_to_tensor=True)
         cv_embeddings = self.vector_model.encode(cv_texts, convert_to_tensor=True)
 
-        from sentence_transformers import util
         similarities = util.cos_sim(jd_embedding, cv_embeddings)[0].tolist()
         return [max(0.0, float(score)) for score in similarities]
 
@@ -113,8 +114,6 @@ class HybridScorer:
             cv_exp_list.append(exp if exp else full)
             cv_full_list.append(full)
 
-        from sentence_transformers import util
-        
         skills_embeddings = self.vector_model.encode(cv_skills_list, convert_to_tensor=True)
         exp_embeddings = self.vector_model.encode(cv_exp_list, convert_to_tensor=True)
         full_embeddings = self.vector_model.encode(cv_full_list, convert_to_tensor=True)
@@ -160,3 +159,108 @@ class HybridScorer:
             })
 
         return sorted(results, key=lambda x: x["final_score_pct"], reverse=True)
+
+
+# =====================================================================
+# GLOBAL FUNCTIONS (Must remain OUTSIDE the HybridScorer class)
+# =====================================================================
+
+SYNONYM_MAP = {
+    "aws": ["aws", "amazon web services", "amazon cloud"],
+    "gcp": ["gcp", "google cloud"],
+    "k8s": ["k8s", "kubernetes"],
+    "react": ["react", "reactjs", "react.js"],
+    "node.js": ["node.js", "nodejs", "node"],
+    "postgres": ["postgres", "postgresql"],
+    "python": ["python", "python3"],
+    "machine learning": ["machine learning", "ml"],
+    "nlp": ["nlp", "natural language processing"]
+}
+
+def evaluate_must_haves(candidate_text: str, must_haves: List[str]) -> Dict:
+    """
+    Checks for exact or synonym word-boundary matches of must-have skills in the candidate text.
+    """
+    if not must_haves:
+        return {"matched": [], "missing": [], "ratio": 1.0}
+    
+    text_lower = candidate_text.lower()
+    matched = []
+    missing = []
+    
+    for skill in must_haves:
+        skill_clean = skill.strip().lower()
+        aliases = SYNONYM_MAP.get(skill_clean, [skill_clean])
+        
+        found = False
+        for alias in aliases:
+            # Word boundary regex prevents substrings (e.g. matching 'C' inside 'CSS')
+            pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
+            if re.search(pattern, text_lower):
+                found = True
+                break
+                
+        if found:
+            matched.append(skill)
+        else:
+            missing.append(skill)
+            
+    ratio = len(matched) / len(must_haves)
+    return {
+        "matched": matched,
+        "missing": missing,
+        "ratio": ratio
+    }
+
+def apply_must_have_penalty(base_hybrid_score: float, coverage_ratio: float, floor_penalty: float = 0.5) -> float:
+    """
+    Reduces the base score by up to `floor_penalty` based on missing keywords.
+    """
+    penalty_multiplier = floor_penalty + ((1.0 - floor_penalty) * coverage_ratio)
+    return round(base_hybrid_score * penalty_multiplier, 2)
+
+def estimate_candidate_yoe(resume_text: str) -> float:
+    """
+    Estimates total years of experience by looking for date ranges or explicit text.
+    """
+    current_year = datetime.now().year
+    total_years = 0.0
+    
+    # 1. Look for explicit mentions (e.g., "5 years of experience")
+    explicit_match = re.search(r'(\d+)\+?\s*(?:years?|yrs?)(?:\s+of)?\s+experience', resume_text.lower())
+    explicit_yoe = float(explicit_match.group(1)) if explicit_match else 0.0
+    
+    # 2. Look for date ranges (e.g., "Jan 2019 - Dec 2022")
+    date_pattern = r'\b(199\d|20\d{2})\b\s*(?:-|to|–|—)\s*\b(199\d|20\d{2}|present|current)\b'
+    matches = re.findall(date_pattern, resume_text.lower())
+    
+    calculated_yoe = 0.0
+    for start_year_str, end_year_str in matches:
+        start_year = int(start_year_str)
+        if end_year_str in ['present', 'current']:
+            end_year = current_year
+        else:
+            end_year = int(end_year_str)
+            
+        if end_year >= start_year:
+            calculated_yoe += (end_year - start_year)
+            
+    if calculated_yoe > 0:
+        calculated_yoe += 0.5 
+
+    return max(explicit_yoe, calculated_yoe)
+
+def apply_yoe_modifier(base_score: float, candidate_yoe: float, required_yoe: float) -> float:
+    """
+    Applies asymmetric scaling to the score based on experience match.
+    """
+    if required_yoe == 0.0:
+        return base_score 
+        
+    if candidate_yoe >= required_yoe:
+        return round(base_score * 1.10, 2)
+        
+    if 0 < candidate_yoe < required_yoe:
+        return round(base_score * 0.95, 2)
+        
+    return base_score
