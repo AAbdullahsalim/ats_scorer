@@ -1,231 +1,331 @@
 import os
+import streamlit as str_lit
 import streamlit as st
 from pathlib import Path
 import pandas as pd
-from src.parser import ResumeParser
-from src.scorer import HybridScorer
+import re
 
-# Page Configuration
+# Core Engine Imports
+from src.parser import ResumeParser, extract_must_haves_with_keybert, extract_required_yoe
+from src.scorer import HybridScorer, evaluate_must_haves, apply_must_have_penalty, estimate_candidate_yoe, apply_yoe_modifier
+
+# 1. Page Configuration with collapsed sidebar state capability
 st.set_page_config(
-    page_title="TalentLens | Enterprise ATS Intelligence", 
+    page_title="AI ATS Resume Matcher", 
     page_icon="", 
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# --- WEBFLOW-INSPIRED DESIGN SYSTEM & CSS ---
-st.markdown("""
-    <style>
-    /* Global Reset & Modern SaaS Dark Theme */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display:none;}
-    
-    .stApp {
-        background-color: #090a0f;
-        background-image: 
-            radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.04) 0%, transparent 50%),
-            linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-        background-size: 100% 100%, 32px 32px, 32px 32px;
-        color: #e2e8f0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    /* Hero Branding */
-    .hero-container {
-        padding: 40px 0px 24px 0px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        margin-bottom: 32px;
-    }
-    .hero-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 4px 10px;
-        border-radius: 9999px;
-        background-color: rgba(56, 189, 248, 0.1);
-        border: 1px solid rgba(56, 189, 248, 0.2);
-        color: #38bdf8;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 12px;
-    }
-
-    /* Webflow-style Cards */
-    .wf-card {
-        background: #111318;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 32px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        transition: border-color 0.2s ease;
-    }
-    .wf-card:hover {
-        border-color: rgba(255, 255, 255, 0.15);
-    }
-
-    /* Custom Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
-        color: #ffffff;
-        font-weight: 600;
-        border: none;
-        border-radius: 8px;
-        padding: 0.6rem 1.2rem;
-        transition: all 0.2s ease;
-        box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
-    }
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4);
-    }
-
-    /* Dataframe & Table Aesthetics */
-    dataframe, table {
-        border-radius: 8px !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
+# --- CACHED HEAVY RESOURCES ---
 @st.cache_resource
 def load_scorer():
     return HybridScorer()
 
-def main():
-    if "show_uploader" not in st.session_state:
-        st.session_state.show_uploader = True
+@st.cache_resource
+def load_parser():
+    return ResumeParser()
 
-    # --- HERO SECTION ---
-    st.markdown("""
-        <div class="hero-container">
-            <div class="hero-badge">Enterprise Engine v2.4</div>
-            <h1 style="font-size: 2.75rem; font-weight: 800; color: #ffffff; letter-spacing: -0.03em; margin: 0 0 8px 0;">
-              TalentLens <span style="font-weight: 300; color: #64748b;">Applicant Matrix</span>
-            </h1>
-            <p style="color: #94a3b8; font-size: 1.1rem; max-width: 600px; margin: 0;">
-              High-precision hybrid dense vector and sparse lexical ranking interface for talent acquisition workflows.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+# --- ISOLATED FRAGMENT FOR SKILL & REQUIREMENT CONTROLS ---
+# Using @st.fragment prevents adding/removing skills from reloading the whole app!
+@st.fragment
+def render_requirements_editor(uploaded_jd, parser):
+    if not uploaded_jd:
+        return None, [], 0.0, False
+
+    st.markdown("---")
+    st.subheader("Auto-Extracted Job Requirements")
+    st.caption("Review and adjust the extracted requirements before analyzing candidates.")
+    
+    jd_path = os.path.join("jds", uploaded_jd.name)
+    os.makedirs("jds", exist_ok=True)
+    with open(jd_path, "wb") as f:
+        f.write(uploaded_jd.getbuffer())
+    
+    # Cache JD parsing state per file to prevent redundant IO overhead
+    @st.cache_data
+    def cached_parse_jd(path):
+        text = parser.parse_jd(path)
+        skills = extract_must_haves_with_keybert(text)
+        yoe = extract_required_yoe(text)
+        return text, skills, yoe
+
+    jd_text, auto_skills, auto_yoe = cached_parse_jd(jd_path)
+
+    if "custom_skills" not in st.session_state:
+        st.session_state.custom_skills = []
+    if "selected_skills" not in st.session_state:
+        st.session_state.selected_skills = auto_skills.copy()
+    if "current_jd_name" not in st.session_state:
+        st.session_state.current_jd_name = uploaded_jd.name
+
+    if st.session_state.current_jd_name != uploaded_jd.name:
+        st.session_state.current_jd_name = uploaded_jd.name
+        st.session_state.custom_skills = [] 
+        st.session_state.selected_skills = auto_skills.copy() 
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        def add_custom_skill():
+            new_s = st.session_state.new_skill_input.strip()
+            if new_s:
+                if new_s not in st.session_state.custom_skills:
+                    st.session_state.custom_skills.append(new_s)
+                if new_s not in st.session_state.selected_skills:
+                    st.session_state.selected_skills.append(new_s)
+            st.session_state.new_skill_input = ""
+
+        def sync_skills():
+            st.session_state.selected_skills = st.session_state.skills_widget
+
+        st.text_input(
+            "Type a missing skill (e.g., 'Next.js') and press Enter:", 
+            key="new_skill_input", 
+            on_change=add_custom_skill
+        )
+        
+        all_options = list(set(auto_skills + st.session_state.custom_skills + ["Python", "AWS", "SQL", "Docker", "Kubernetes", "React", "Java", "Next.js"]))
+        safe_defaults = [s for s in st.session_state.selected_skills if s in all_options]
+
+        must_have_skills = st.multiselect(
+            "Must-Have Skills (Click 'X' to remove):",
+            options=all_options,
+            default=safe_defaults,
+            key="skills_widget",
+            on_change=sync_skills
+        )
+        
+        strict_mode = st.checkbox("Strict Mode: Completely hide candidates missing ANY of these skills.")
+        
+    with col2:
+        target_yoe = st.number_input("Required Years of Experience:", min_value=0.0, value=float(auto_yoe), step=0.5, format="%.1f")
+
+    return jd_text, must_have_skills, target_yoe, strict_mode
+
+
+def main():
+    # --- INITIAL BOOT SKELETON PLACEHOLDER ---
+    placeholder = st.empty()
+    
+    with placeholder.container():
+        st.title("AI-Powered ATS Resume Matcher & Scorer")
+        st.markdown("Loading AI models and initializing secure workspace...")
+        st.progress(50)
 
     scorer = load_scorer()
-    parser = ResumeParser()
+    parser = load_parser()
 
-    # --- ACTION BAR & PANEL TOGGLE ---
-    col_toggle, col_empty = st.columns([1, 5])
-    with col_toggle:
-        toggle_text = "Hide Upload Hub" if st.session_state.show_uploader else "Expand Upload Hub"
-        if st.button(toggle_text, use_container_width=True):
-            st.session_state.show_uploader = not st.session_state.show_uploader
-            st.rerun()
+    placeholder.empty()
 
-    uploaded_jd = None
-    uploaded_cvs = []
+    st.title("AI-Powered ATS Resume Matcher & Scorer")
+    st.markdown("Upload a Job Description to auto-extract requirements, then score candidate resumes using Hybrid Dense/Sparse AI matching.")
 
-    if st.session_state.show_uploader:
-        st.markdown('<div class="wf-card">', unsafe_allow_html=True)
-        uc1, uc2 = st.columns(2, gap="large")
-        
-        with uc1:
-            st.markdown("### Target Job Profile")
-            st.markdown("<p style='color:#64748b; font-size:0.85rem; margin-bottom:12px;'>Upload baseline position requirements (.pdf, .docx, .txt)</p>", unsafe_allow_html=True)
-            uploaded_jd = st.file_uploader("Upload JD", type=["pdf", "docx", "txt"], label_visibility="collapsed", key="jd_upload")
+    # SIDEBAR: UPLOADS & WEIGHTS
+    st.sidebar.header("Configuration & Uploads")
+    uploaded_jd = st.sidebar.file_uploader("Upload Job Description (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
+    uploaded_cvs = st.sidebar.file_uploader("Upload Candidate CVs (.pdf, .docx)", type=["pdf", "docx"], accept_multiple_files=True)
 
-        with uc2:
-            st.markdown("### Candidate Batch Pool")
-            st.markdown("<p style='color:#64748b; font-size:0.85rem; margin-bottom:12px;'>Select multi-file folder bundle for deep analysis</p>", unsafe_allow_html=True)
-            uploaded_cvs = st.file_uploader("Upload CVs", type=["pdf", "docx"], accept_multiple_files=True, label_visibility="collapsed", key="cv_upload")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Base Scoring Weights")
+    vector_weight = st.sidebar.slider("Semantic Vector Weight", 0.0, 1.0, 0.6)
+    bm25_weight = st.sidebar.slider("Keyword BM25 Weight", 0.0, 1.0, 0.4)
+
+    # Render isolated requirement component fragment
+    jd_text, must_have_skills, target_yoe, strict_mode = render_requirements_editor(uploaded_jd, parser)
+
+    # SCORING EXECUTION
+    if uploaded_jd and uploaded_cvs:
+        st.markdown("---")
+        if st.button("Run ATS Analysis", type="primary", use_container_width=True):
             
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
-
-    # Execution Button
-    col_run, _ = st.columns([2, 4])
-    with col_run:
-        run_analysis = st.button("Run Evaluation Pipeline", type="primary", use_container_width=True)
-
-    if run_analysis:
-        if not uploaded_jd or not uploaded_cvs:
-            st.error("Please supply both a Target Job Profile and a Candidate Batch before running execution.")
-            return
-
-        with st.status("Executing hybrid vector-lexical pipeline...", expanded=True) as status:
-            st.write("Parsing document hierarchy and layout boundaries...")
-            
-            jd_path = os.path.join("jds", uploaded_jd.name)
-            os.makedirs("jds", exist_ok=True)
-            with open(jd_path, "wb") as f:
-                f.write(uploaded_jd.getbuffer())
-            
-            jd_text = parser.parse_jd(jd_path)
-
-            os.makedirs("sample_cvs", exist_ok=True)
-            candidates = []
-            
-            for cv_file in uploaded_cvs:
-                cv_path = os.path.join("sample_cvs", cv_file.name)
-                with open(cv_path, "wb") as f:
-                    f.write(cv_file.getbuffer())
+            with st.status("Processing documents and calculating hybrid scores...", expanded=True) as status:
+                os.makedirs("sample_cvs", exist_ok=True)
+                candidates = []
                 
-                parsed_data = parser.parse_cv(cv_path)
-                if parsed_data:
-                    candidates.append(parsed_data)
+                for cv_file in uploaded_cvs:
+                    cv_path = os.path.join("sample_cvs", cv_file.name)
+                    with open(cv_path, "wb") as f:
+                        f.write(cv_file.getbuffer())
+                    
+                    parsed_data = parser.parse_cv(cv_path)
+                    if parsed_data:
+                        candidates.append(parsed_data)
 
-            if not candidates:
-                status.update(label="Extraction Failed", state="error")
-                st.error("No valid text nodes extracted from the candidate batch.")
-                return
+                if not candidates:
+                    status.update(label="Extraction Failed", state="error")
+                    st.error("Could not extract text from the uploaded CVs.")
+                    return
 
-            st.write("Evaluating dense semantic representations and token frequency models...")
-            results = scorer.score_candidates(
-                jd_text=jd_text,
-                candidates=candidates,
-                vector_weight=0.6,
-                bm25_weight=0.4
+                base_results = scorer.score_candidates(
+                    jd_text=jd_text,
+                    candidates=candidates,
+                    vector_weight=vector_weight,
+                    bm25_weight=bm25_weight
+                )
+
+                final_results = []
+                for res in base_results:
+                    cv_full_text = " ".join(res.get("sections", {}).values())
+                    base_score = res['final_score_pct']
+                    
+                    must_have_eval = evaluate_must_haves(cv_full_text, must_have_skills)
+                    if strict_mode and must_have_eval["ratio"] < 1.0:
+                        continue
+                        
+                    score_after_skills = apply_must_have_penalty(base_score, must_have_eval["ratio"])
+                    candidate_yoe = estimate_candidate_yoe(cv_full_text)
+                    final_score = apply_yoe_modifier(score_after_skills, candidate_yoe, target_yoe)
+                    
+                    res["base_score"] = base_score
+                    res["final_score_pct"] = final_score
+                    res["matched_skills"] = must_have_eval["matched"]
+                    res["missing_skills"] = must_have_eval["missing"]
+                    res["candidate_yoe"] = candidate_yoe
+                    final_results.append(res)
+
+                final_results = sorted(final_results, key=lambda x: x["final_score_pct"], reverse=True)
+                
+                st.session_state.final_results = final_results
+                st.session_state.must_have_skills = must_have_skills
+                status.update(label=f"Successfully analyzed {len(final_results)} candidate profiles.", state="complete", expanded=False)
+
+        # DISPLAY RESULTS IF AVAILABLE IN SESSION STATE
+        if "final_results" in st.session_state and st.session_state.final_results:
+            final_results = st.session_state.final_results
+            
+            st.markdown("### Candidate Ranking Results")
+
+            display_data = []
+            for idx, res in enumerate(final_results, start=1):
+                matched_str = ", ".join(res["matched_skills"][:3]) if res["matched_skills"] else "None"
+                if len(res["matched_skills"]) > 3:
+                    matched_str += f" (+{len(res['matched_skills']) - 3} more)"
+
+                missing_str = ", ".join(res["missing_skills"][:3]) if res["missing_skills"] else "None"
+                if len(res["missing_skills"]) > 3:
+                    missing_str += f" (+{len(res['missing_skills']) - 3} more)"
+
+                display_data.append({
+                    "Rank": idx,
+                    "Candidate File": res["file_name"],
+                    "Final Match %": res['final_score_pct'],
+                    "Est. YOE": f"{res['candidate_yoe']} yrs",
+                    "Matched Skills": matched_str,
+                    "Missing Skills": missing_str
+                })
+
+            df_results = pd.DataFrame(display_data)
+            st.dataframe(df_results, use_container_width=True, hide_index=True)
+# --- PROFESSIONAL EXCEL REPORT EXPORT (WITH CONTACTS & ROW COLORING) ---
+            import io
+            import openpyxl
+            from openpyxl.styles import PatternFill
+
+            export_rows = []
+            for idx, res in enumerate(final_results, start=1):
+                score = round(res.get("final_score_pct", 0.0), 2)
+                
+                # Combine all section texts to ensure contact details are fully searchable
+                sections_dict = res.get("sections", {})
+                full_search_text = " ".join([str(v) for v in sections_dict.values() if v])
+                
+                # Robust Contact Regex Extractors
+                import re
+                email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', full_search_text)
+                phone_match = re.search(r'(?:\+\d{1,3}\s?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,13}', full_search_text)
+                linkedin_match = re.search(r'(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[\w\-_%]+', full_search_text)
+
+                email = email_match.group(0) if email_match else "N/A"
+                phone = phone_match.group(0) if phone_match else "N/A"
+                linkedin = linkedin_match.group(0) if linkedin_match else "N/A"
+                
+                matched_skills_full = ", ".join(res.get("matched_skills", [])) if res.get("matched_skills") else "None specified"
+                missing_skills_full = ", ".join(res.get("missing_skills", [])) if res.get("missing_skills") else "None specified"
+                
+                export_rows.append({
+                    "Rank": idx,
+                    "Candidate File": res.get("file_name", "Unknown").replace(".pdf", "").replace(".docx", "").replace("_", " ").title(),
+                    "Email Address": email,
+                    "Phone Number": phone,
+                    "LinkedIn Profile": linkedin,
+                    "Final Match Score (%)": score,
+                    "Estimated Experience (Years)": res.get("candidate_yoe", 0.0),
+                    "Matched Skills": matched_skills_full,
+                    "Missing Skills": missing_skills_full
+                    # "Source File" column completely removed
+                })
+
+            df_export = pd.DataFrame(export_rows)
+
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_export.to_excel(writer, index=False, sheet_name='Candidate Rankings')
+            
+            output.seek(0)
+            
+            wb = openpyxl.load_workbook(output)
+            ws = wb.active
+
+            red_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')  # Soft red for < 50%
+            green_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid') # Soft green for >= 75%
+
+            for row_idx in range(2, ws.max_row + 1):
+                # Score is in column F (index 6)
+                score_cell = ws.cell(row=row_idx, column=6)
+                try:
+                    score_val = float(score_cell.value)
+                    if score_val < 50.0:
+                        for col_idx in range(1, ws.max_column + 1):
+                            ws.cell(row=row_idx, column=col_idx).fill = red_fill
+                    elif score_val >= 75.0:
+                        for col_idx in range(1, ws.max_column + 1):
+                            ws.cell(row=row_idx, column=col_idx).fill = green_fill
+                except (ValueError, TypeError):
+                    pass
+
+            final_excel_output = io.BytesIO()
+            wb.save(final_excel_output)
+            final_excel_output.seek(0)
+
+            st.download_button(
+                label="📥 Download Styled Excel Recruiter Report (.xlsx)",
+                data=final_excel_output,
+                file_name="executive_ats_recruitment_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
             )
-            status.update(label=f"Successfully processed {len(results)} candidate profiles.", state="complete", expanded=False)
+            # --- DETAILED INSPECTION CARD SELECTOR ---
+            st.markdown("---")
+            st.markdown("### Candidate Skill Inspection Dossier")
+            st.caption("Select a candidate below to view their complete, un-truncated skill breakdown.")
 
-        st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
-        st.markdown("### Candidate Leaderboard & Metrics")
+            candidate_options = [res["file_name"] for res in final_results]
+            selected_candidate_name = st.selectbox("Choose Candidate File:", options=candidate_options, key="dossier_select")
 
-        display_data = []
-        for idx, res in enumerate(results, start=1):
-            display_data.append({
-                "Rank": idx,
-                "Candidate File": res["file_name"],
-                "Final Match %": res['final_score_pct'],
-                "Vector %": res['vector_score_pct'],
-                "BM25 %": res['bm25_score_pct']
-            })
+            selected_res = next((res for res in final_results if res["file_name"] == selected_candidate_name), None)
 
-        df_results = pd.DataFrame(display_data)
-        
-        st.dataframe(df_results, use_container_width=True, hide_index=True)
+            if selected_res:
+                st.markdown(f"#### Dossier for: **{selected_res['file_name']}**")
+                
+                col_i1, col_i2, col_i3 = st.columns(3)
+                with col_i1:
+                    st.metric("Final Match Score", f"{selected_res['final_score_pct']}%")
+                with col_i2:
+                    st.metric("Estimated Experience", f"{selected_res['candidate_yoe']} yrs")
+                with col_i3:
+                    st.metric("Total Match Ratio", f"{len(selected_res['matched_skills'])} matched")
 
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-        csv_data = df_results.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Complete CSV Matrix",
-            data=csv_data,
-            file_name="ats_candidate_rankings.csv",
-            mime="text/csv",
-            type="secondary"
-        )
+                st.markdown("##### Complete Matched Skills List:")
+                if selected_res["matched_skills"]:
+                    st.success(", ".join(selected_res["matched_skills"]))
+                else:
+                    st.info("No target skills matched.")
 
-        st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
-        st.markdown("### Granular Profile Section Breakdown")
-        for res in results:
-            with st.expander(f"Rank {res['file_name']} — Final Match Score: {res['final_score_pct']}%"):
-                col_s, col_e = st.columns(2, gap="medium")
-                with col_s:
-                    st.markdown("**Core Skills Profile:**")
-                    st.info(res["sections"].get("skills", "No dedicated skill block isolated."))
-                with col_e:
-                    st.markdown("**Professional Experience Node:**")
-                    st.info(res["sections"].get("experience", "No dedicated experience block isolated."))
+                st.markdown("##### Complete Missing Skills List:")
+                if selected_res["missing_skills"]:
+                    st.error(", ".join(selected_res["missing_skills"]))
+                else:
+                    st.success("No missing skills! Candidate covers all requirements.")
 
 if __name__ == "__main__":
     main()
