@@ -1,9 +1,10 @@
 import re
+import io
 from pathlib import Path
+from typing import Union, Dict, List
 import pdfplumber
 from docx import Document
 from keybert import KeyBERT
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 class ResumeParser:
     def __init__(self):
@@ -14,17 +15,34 @@ class ResumeParser:
             "projects": ["projects", "project experience", "key projects", "selected projects"]
         }
 
-    def extract_text_from_pdf(self, pdf_path: str) -> str:
+    def _get_stream(self, file_source: Union[str, Path, io.BytesIO, bytes]) -> io.BytesIO:
+        if isinstance(file_source, bytes):
+            return io.BytesIO(file_source)
+        elif isinstance(file_source, (str, Path)):
+            path = Path(file_source)
+            if not path.exists():
+                raise FileNotFoundError(f"File not found: {file_source}")
+            with open(path, "rb") as f:
+                return io.BytesIO(f.read())
+        elif isinstance(file_source, io.BytesIO):
+            file_source.seek(0)
+            return file_source
+        else:
+            raise ValueError(f"Unsupported file source type: {type(file_source)}")
+
+    def extract_text_from_pdf(self, file_source: Union[str, Path, io.BytesIO, bytes]) -> str:
+        stream = self._get_stream(file_source)
         extracted_text = []
-        with pdfplumber.open(pdf_path) as pdf:
+        with pdfplumber.open(stream) as pdf:
             for page in pdf.pages:
                 text = page.extract_text(layout=True)
                 if text:
                     extracted_text.append(text)
         return "\n".join(extracted_text)
 
-    def extract_text_from_docx(self, docx_path: str) -> str:
-        doc = Document(docx_path)
+    def extract_text_from_docx(self, file_source: Union[str, Path, io.BytesIO, bytes]) -> str:
+        stream = self._get_stream(file_source)
+        doc = Document(stream)
         extracted_text = [p.text for p in doc.paragraphs if p.text.strip()]
         return "\n".join(extracted_text)
 
@@ -37,16 +55,8 @@ class ResumeParser:
 
     def split_into_sections(self, text: str) -> dict:
         lines = text.split('\n')
-        # Added "projects" to prevent KeyError when project sections are encountered
         sections = {"experience": [], "skills": [], "education": [], "projects": [], "other": []}
         current_section = "other"
-
-        self.section_keywords = {
-            "experience": ["experience", "work history", "employment history", "professional experience"],
-            "skills": ["skills", "technical skills", "competencies", "core qualifications"],
-            "education": ["education", "academic background", "degrees", "qualifications"],
-            "projects": ["projects", "project experience", "key projects", "selected projects"]
-        }
 
         for line in lines:
             line_clean = line.strip().lower()
@@ -66,46 +76,68 @@ class ResumeParser:
                 sections["other"].append(line)
 
         return {k: "\n".join(v).strip() for k, v in sections.items()}
-    def parse(self, file_path: str) -> dict:
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
 
-        ext = path.suffix.lower()
+    def parse(self, file_source: Union[str, Path, io.BytesIO, bytes], file_name: str = "") -> dict:
+        if not file_name and isinstance(file_source, (str, Path)):
+            file_name = Path(file_source).name
+        elif not file_name:
+            file_name = "uploaded_document"
+
+        ext = Path(file_name).suffix.lower() if file_name else ""
+        if not ext and isinstance(file_source, (str, Path)):
+            ext = Path(file_source).suffix.lower()
+
         if ext == ".pdf":
-            raw_text = self.extract_text_from_pdf(file_path)
+            raw_text = self.extract_text_from_pdf(file_source)
         elif ext == ".docx":
-            raw_text = self.extract_text_from_docx(file_path)
+            raw_text = self.extract_text_from_docx(file_source)
         else:
-            raise ValueError(f"Unsupported file format: {ext}")
+            try:
+                raw_text = self.extract_text_from_pdf(file_source)
+            except Exception:
+                try:
+                    raw_text = self.extract_text_from_docx(file_source)
+                except Exception:
+                    raise ValueError(f"Unsupported file format for: {file_name}")
 
         cleaned_text = self.clean_text(raw_text)
         sections = self.split_into_sections(cleaned_text)
 
         return {
-            "file_name": path.name,
+            "file_name": file_name,
             "full_text": cleaned_text,
             "sections": sections
         }
 
-    def parse_cv(self, file_path: str) -> dict:
-        return self.parse(file_path)
+    def parse_cv(self, file_source: Union[str, Path, io.BytesIO, bytes], file_name: str = "") -> dict:
+        return self.parse(file_source, file_name=file_name)
 
-    def parse_jd(self, file_path: str) -> str:
-        path = Path(file_path)
-        if not path.exists():
-            return ""
+    def parse_jd(self, file_source: Union[str, Path, io.BytesIO, bytes], file_name: str = "") -> str:
+        if not file_name and isinstance(file_source, (str, Path)):
+            file_name = Path(file_source).name
+        elif not file_name:
+            file_name = "jd_document"
 
-        ext = path.suffix.lower()
+        ext = Path(file_name).suffix.lower()
+
         if ext == ".pdf":
-            raw_text = self.extract_text_from_pdf(file_path)
+            raw_text = self.extract_text_from_pdf(file_source)
         elif ext == ".docx":
-            raw_text = self.extract_text_from_docx(file_path)
+            raw_text = self.extract_text_from_docx(file_source)
         elif ext == ".txt":
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                raw_text = f.read()
+            if isinstance(file_source, (str, Path)):
+                with open(file_source, 'r', encoding='utf-8', errors='ignore') as f:
+                    raw_text = f.read()
+            elif isinstance(file_source, bytes):
+                raw_text = file_source.decode('utf-8', errors='ignore')
+            elif isinstance(file_source, io.BytesIO):
+                file_source.seek(0)
+                raw_text = file_source.read().decode('utf-8', errors='ignore')
+            else:
+                raw_text = ""
         else:
-            raw_text = ""
+            stream = self._get_stream(file_source)
+            raw_text = stream.read().decode('utf-8', errors='ignore')
 
         return self.clean_text(raw_text)
 
@@ -120,12 +152,11 @@ TECH_WHITELIST = {
     "git", "github", "gitlab", "linux", "graphql", "rest apis", "websockets", "microservices", "agile", "scrum", "jira"
 }
 
-kw_model = KeyBERT(model='all-MiniLM-L6-v2')
-
-def extract_must_haves_with_keybert(jd_text: str, top_n: int = 15) -> list:
+def extract_must_haves_with_keybert(jd_text: str, keybert_model: KeyBERT = None, top_n: int = 15) -> list:
     """
     Strict Hybrid Extraction: Scans the JD text against a rigorous technical whitelist 
     and filters out all non-tech action words or messy multi-word phrases.
+    Uses an injected KeyBERT model if provided, or lazily instantiates one.
     """
     if not jd_text or not jd_text.strip():
         return ["Python", "AWS", "Docker", "NestJS", "Next.js"]
@@ -163,7 +194,10 @@ def extract_must_haves_with_keybert(jd_text: str, top_n: int = 15) -> list:
         "using", "role", "position", "company", "skills", "knowledge", "ability", "strong", "ai", "ml"
     }
 
-    keywords = kw_model.extract_keywords(jd_text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=20)
+    if keybert_model is None:
+        keybert_model = KeyBERT(model='all-MiniLM-L6-v2')
+
+    keywords = keybert_model.extract_keywords(jd_text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=20)
     for kw, score in keywords:
         phrase_lower = kw.lower().strip()
         tokens = set(phrase_lower.split())

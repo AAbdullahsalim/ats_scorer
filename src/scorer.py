@@ -3,12 +3,14 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, util
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 class HybridScorer:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        print("Loading local vector model (MiniLM-L6-v2)...")
-        self.vector_model = SentenceTransformer(model_name)
+    def __init__(self, vector_model: Optional[SentenceTransformer] = None, model_name: str = "all-MiniLM-L6-v2"):
+        if vector_model is not None:
+            self.vector_model = vector_model
+        else:
+            self.vector_model = SentenceTransformer(model_name)
 
     def _tokenize(self, text: str) -> list[str]:
         return re.findall(r'\w+', text.lower())
@@ -82,7 +84,6 @@ class HybridScorer:
             return []
 
         results = []
-        jd_embedding = self.vector_model.encode(jd_text, convert_to_tensor=True)
 
         cv_skills_list = []
         cv_exp_list = []
@@ -205,7 +206,6 @@ def estimate_candidate_yoe(cv_text_or_sections) -> float:
         r'(?:experience|exp)(?:\s+of)?\s+(?:over|more than|\+)?\s*(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)'
     ]
     
-    # Search first in full text or summary for explicit declarations
     for pat in explicit_patterns:
         match = re.search(pat, full_text, re.IGNORECASE)
         if match:
@@ -280,26 +280,25 @@ def estimate_candidate_yoe(cv_text_or_sections) -> float:
 
         if start_yr and end_yr:
             duration = (end_yr - start_yr) * 12 + (end_mo - start_mo)
-            # Filter out unreasonable ranges (< 1 month or > 40 years per stint)
             if 0 < duration <= 480:
                 parsed_ranges.append((start_yr * 12 + start_mo, end_yr * 12 + end_mo))
 
     if not parsed_ranges:
         return 0.0
 
-    # Merge overlapping employment date ranges to prevent double-counting concurrent roles
     parsed_ranges.sort(key=lambda x: x[0])
     merged_ranges = [parsed_ranges[0]]
     
     for current_start, current_end in parsed_ranges[1:]:
         prev_start, prev_end = merged_ranges[-1]
-        if current_start <= prev_end: # Overlap or continuous
+        if current_start <= prev_end:
             merged_ranges[-1] = (prev_start, max(prev_end, current_end))
         else:
             merged_ranges.append((current_start, current_end))
 
     total_months = sum(end - start for start, end in merged_ranges)
     return round(total_months / 12.0, 1)
+
 def apply_yoe_modifier(base_score: float, candidate_yoe: float, required_yoe: float) -> float:
     if required_yoe == 0.0:
         return base_score 

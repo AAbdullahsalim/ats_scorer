@@ -1,34 +1,56 @@
 import os
-import streamlit as str_lit
-import streamlit as st
+import io
+import re
 from pathlib import Path
 import pandas as pd
-import re
+import openpyxl
+from openpyxl.styles import PatternFill
+import streamlit as st
+
+from sentence_transformers import SentenceTransformer
+from keybert import KeyBERT
 
 # Core Engine Imports
 from src.parser import ResumeParser, extract_must_haves_with_keybert, extract_required_yoe
 from src.scorer import HybridScorer, evaluate_must_haves, apply_must_have_penalty, estimate_candidate_yoe, apply_yoe_modifier
 
-# 1. Page Configuration with collapsed sidebar state capability
+# 1. Page Configuration
 st.set_page_config(
     page_title="AI ATS Resume Matcher", 
-    page_icon="", 
+    page_icon="⚡", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CACHED HEAVY RESOURCES ---
-@st.cache_resource
-def load_scorer():
-    return HybridScorer()
+# --- CENTRALIZED LAZY-LOADED MODEL REGISTRY ---
+@st.cache_resource(show_spinner="Initializing AI Model Registry...")
+def get_model_registry():
+    transformer = SentenceTransformer("all-MiniLM-L6-v2")
+    keybert_model = KeyBERT(model=transformer)
+    scorer = HybridScorer(vector_model=transformer)
+    parser = ResumeParser()
+    return {
+        "transformer": transformer,
+        "keybert": keybert_model,
+        "scorer": scorer,
+        "parser": parser
+    }
 
-@st.cache_resource
-def load_parser():
-    return ResumeParser()
+# --- TOP-LEVEL CACHED PARSING FUNCTION ---
+@st.cache_data
+def cached_parse_jd(jd_bytes: bytes, file_name: str):
+    registry = get_model_registry()
+    parser = registry["parser"]
+    keybert_model = registry["keybert"]
+    
+    text = parser.parse_jd(jd_bytes, file_name=file_name)
+    skills = extract_must_haves_with_keybert(text, keybert_model=keybert_model)
+    yoe = extract_required_yoe(text)
+    return text, skills, yoe
 
 # --- ISOLATED FRAGMENT FOR SKILL & REQUIREMENT CONTROLS ---
 @st.fragment
-def render_requirements_editor(uploaded_jd, parser):
+def render_requirements_editor(uploaded_jd):
     if not uploaded_jd:
         return None, [], 0.0, False
 
@@ -36,19 +58,8 @@ def render_requirements_editor(uploaded_jd, parser):
     st.subheader("Auto-Extracted Job Requirements")
     st.caption("Review and adjust the extracted requirements before analyzing candidates.")
     
-    jd_path = os.path.join("jds", uploaded_jd.name)
-    os.makedirs("jds", exist_ok=True)
-    with open(jd_path, "wb") as f:
-        f.write(uploaded_jd.getbuffer())
-    
-    @st.cache_data
-    def cached_parse_jd(path):
-        text = parser.parse_jd(path)
-        skills = extract_must_haves_with_keybert(text)
-        yoe = extract_required_yoe(text)
-        return text, skills, yoe
-
-    jd_text, auto_skills, auto_yoe = cached_parse_jd(jd_path)
+    jd_bytes = uploaded_jd.getvalue()
+    jd_text, auto_skills, auto_yoe = cached_parse_jd(jd_bytes, uploaded_jd.name)
 
     if "custom_skills" not in st.session_state:
         st.session_state.custom_skills = []
@@ -102,18 +113,6 @@ def render_requirements_editor(uploaded_jd, parser):
 
 
 def main():
-    placeholder = st.empty()
-    
-    with placeholder.container():
-        st.title("AI-Powered ATS Resume Matcher & Scorer")
-        st.markdown("Loading AI models and initializing secure workspace...")
-        st.progress(50)
-
-    scorer = load_scorer()
-    parser = load_parser()
-
-    placeholder.empty()
-
     st.title("AI-Powered ATS Resume Matcher & Scorer")
     st.markdown("Upload a Job Description to auto-extract requirements, then score candidate resumes using Hybrid Dense/Sparse AI matching.")
 
@@ -127,23 +126,22 @@ def main():
     vector_weight = st.sidebar.slider("Semantic Vector Weight", 0.0, 1.0, 0.6)
     bm25_weight = st.sidebar.slider("Keyword BM25 Weight", 0.0, 1.0, 0.4)
 
-    jd_text, must_have_skills, target_yoe, strict_mode = render_requirements_editor(uploaded_jd, parser)
+    jd_text, must_have_skills, target_yoe, strict_mode = render_requirements_editor(uploaded_jd)
 
     # SCORING EXECUTION
     if uploaded_jd and uploaded_cvs:
         st.markdown("---")
         if st.button("Run ATS Analysis", type="primary", use_container_width=True):
             
-            with st.status("Processing documents and calculating hybrid scores...", expanded=True) as status:
-                os.makedirs("sample_cvs", exist_ok=True)
-                candidates = []
+            with st.status("Processing documents in memory and calculating hybrid scores...", expanded=True) as status:
+                registry = get_model_registry()
+                parser = registry["parser"]
+                scorer = registry["scorer"]
                 
+                candidates = []
                 for cv_file in uploaded_cvs:
-                    cv_path = os.path.join("sample_cvs", cv_file.name)
-                    with open(cv_path, "wb") as f:
-                        f.write(cv_file.getbuffer())
-                    
-                    parsed_data = parser.parse_cv(cv_path)
+                    cv_bytes = cv_file.getvalue()
+                    parsed_data = parser.parse_cv(cv_bytes, file_name=cv_file.name)
                     if parsed_data:
                         candidates.append(parsed_data)
 
@@ -214,10 +212,6 @@ def main():
             st.dataframe(df_results, use_container_width=True, hide_index=True)
 
             # --- PROFESSIONAL EXCEL REPORT EXPORT (WITH AUTO-FIT, CONTACTS & ROW COLORING) ---
-            import io
-            import openpyxl
-            from openpyxl.styles import PatternFill
-
             export_rows = []
             for idx, res in enumerate(final_results, start=1):
                 score = round(res.get("final_score_pct", 0.0), 2)
@@ -275,7 +269,7 @@ def main():
                 except (ValueError, TypeError):
                     pass
 
-            # --- AUTO-FIT COLUMN WIDTHS SO ALL TEXT IS FULLY VISIBLE ---
+            # AUTO-FIT COLUMN WIDTHS
             for col in ws.columns:
                 max_length = 0
                 col_letter = openpyxl.utils.get_column_letter(col[0].column)
@@ -283,7 +277,7 @@ def main():
                     try:
                         if cell.value:
                             max_length = max(max_length, len(str(cell.value)))
-                    except:
+                    except Exception:
                         pass
                 ws.column_dimensions[col_letter].width = max(max_length + 4, 15)
 
@@ -299,7 +293,7 @@ def main():
                 type="primary"
             )
 
-            # --- DETAILED INSPECTION CARD SELECTOR ---
+            # DETAILED INSPECTION CARD SELECTOR
             st.markdown("---")
             st.markdown("### Candidate Skill Inspection Dossier")
             st.caption("Select a candidate below to view their complete, un-truncated skill breakdown.")
