@@ -14,24 +14,28 @@ class ResumeParser:
         self.section_keywords = {
             "experience": [
                 "experience", "work history", "employment history", "professional experience",
-                "career history", "work experience", "employment", "work background"
+                "career history", "work experience", "employment", "work background",
+                "internship", "internships", "professional background", "relevant experience",
+                "professional history"
             ],
             "skills": [
                 "skills", "technical skills", "competencies", "core qualifications",
                 "technologies", "tech stack", "tools & technologies", "expertise",
-                "areas of expertise", "key skills", "proficiencies"
+                "areas of expertise", "key skills", "proficiencies", "technical proficiencies",
+                "technical expertise"
             ],
             "education": [
                 "education", "academic background", "degrees", "qualifications",
-                "educational background", "academic qualifications", "academics"
+                "educational background", "academic qualifications", "academics",
+                "academic history", "education & certifications"
             ],
             "projects": [
-                "projects", "project experience", "key projects", "selected projects",
-                "personal projects", "academic projects", "relevant projects"
+                "projects", "project", "project experience", "key projects", "selected projects",
+                "personal projects", "academic projects", "relevant projects", "major projects"
             ],
             "summary": [
                 "summary", "professional summary", "about me", "profile", "executive summary",
-                "career objective", "objective", "overview"
+                "career objective", "objective", "overview", "about"
             ]
         }
 
@@ -191,14 +195,22 @@ class ResumeParser:
     def _classify_heading(self, line: str, is_bold: bool = False, is_heading_style: bool = False) -> Tuple[bool, str]:
         """
         Multi-signal heading classifier:
-        Combines keyword taxonomy matching, length constraints, bold weight, and case pattern.
+        Handles spaced headings (e.g. 'E X P E R I E N C E'), taxonomy matching, length constraints, and bold weight.
         Returns (is_header, canonical_section_name)
         """
-        clean_line = line.strip().lower()
-        if not clean_line or len(clean_line) > 60:
+        raw_strip = line.strip()
+        if not raw_strip:
             return False, ""
 
-        normalized_line = re.sub(r'[:\-\_]+$', '', clean_line).strip()
+        # Normalize spaced-out characters: 'E X P E R I E N C E' -> 'EXPERIENCE', 'E XPERIENCE' -> 'EXPERIENCE'
+        line_unspaced = re.sub(r'\b([a-zA-Z])\s+(?=[a-zA-Z]\b)', r'\1', raw_strip)
+        clean_line = line_unspaced.lower()
+
+        if len(clean_line) > 60:
+            return False, ""
+
+        normalized_line = re.sub(r'[:\-\_\•\·\–\—]+$', '', clean_line).strip()
+        normalized_line = re.sub(r'^[:\-\_\•\·\–\—]+', '', normalized_line).strip()
 
         matched_section = None
         for sec_name, keywords in self.section_keywords.items():
@@ -215,7 +227,7 @@ class ResumeParser:
         score = 0
         if is_bold or is_heading_style:
             score += 2
-        if line.isupper() or line.istitle():
+        if raw_strip.isupper() or raw_strip.istitle() or line_unspaced.isupper():
             score += 2
         if len(clean_line) < 35:
             score += 1
@@ -301,48 +313,42 @@ class ResumeParser:
         return parsed["full_text"]
 
 
-# Master Technical Vocabulary Whitelist to strictly filter out garbage phrases
+# Technical Vocabulary Whitelist & Canonical Display Names
 TECH_WHITELIST = {
-    "python", "java", "javascript", "typescript", "c++", "c#", "go", "golang", "rust", "ruby", "php",
-    "react", "react.js", "next.js", "nextjs", "vue", "vue.js", "angular", "node.js", "nodejs", "express", "fastapi", "flask", "django", "nestjs",
-    "aws", "gcp", "azure", "docker", "kubernetes", "k8s", "terraform", "ansible", "jenkins", "ci/cd",
-    "postgresql", "postgres", "mysql", "mongodb", "redis", "dynamodb", "elasticsearch", "kafka", "rabbitmq",
-    "tensorflow", "pytorch", "keras", "scikit-learn", "pandas", "numpy", "opencv", "hugging face", "langchain", "llm", "transformers",
-    "git", "github", "gitlab", "linux", "graphql", "rest apis", "websockets", "microservices", "agile", "scrum", "jira"
+    "python": "Python", "java": "Java", "javascript": "JavaScript", "typescript": "TypeScript",
+    "c++": "C++", "c#": "C#", "go": "Go", "golang": "Go", "rust": "Rust", "ruby": "Ruby", "php": "PHP",
+    "react": "React", "react.js": "React", "reactjs": "React", "next.js": "Next.js", "nextjs": "Next.js",
+    "vue": "Vue.js", "vue.js": "Vue.js", "angular": "Angular", "node.js": "Node.js", "nodejs": "Node.js",
+    "express": "Express.js", "fastapi": "FastAPI", "flask": "Flask", "django": "Django", "nestjs": "NestJS", "nest.js": "NestJS",
+    "aws": "AWS", "gcp": "GCP", "azure": "Azure", "docker": "Docker", "kubernetes": "Kubernetes", "k8s": "Kubernetes",
+    "terraform": "Terraform", "ansible": "Ansible", "jenkins": "Jenkins", "ci/cd": "CI/CD",
+    "postgresql": "PostgreSQL", "postgres": "PostgreSQL", "mysql": "MySQL", "mongodb": "MongoDB",
+    "redis": "Redis", "dynamodb": "DynamoDB", "elasticsearch": "Elasticsearch", "kafka": "Kafka", "rabbitmq": "RabbitMQ",
+    "tensorflow": "TensorFlow", "pytorch": "PyTorch", "keras": "Keras", "scikit-learn": "Scikit-Learn",
+    "pandas": "Pandas", "numpy": "NumPy", "opencv": "OpenCV", "hugging face": "Hugging Face",
+    "langchain": "LangChain", "llm": "LLM", "transformers": "Transformers",
+    "git": "Git", "github": "GitHub", "gitlab": "GitLab", "linux": "Linux", "graphql": "GraphQL",
+    "rest apis": "REST APIs", "websockets": "WebSockets", "microservices": "Microservices",
+    "agile": "Agile", "scrum": "Scrum", "jira": "Jira"
 }
 
 def extract_must_haves_with_keybert(jd_text: str, keybert_model: Any = None, top_n: int = 15) -> list:
     """
-    Strict Hybrid Extraction: Scans the JD text against a rigorous technical whitelist 
-    and filters out all non-tech action words or messy multi-word phrases.
-    Uses an injected KeyBERT model if provided, or lazily instantiates one.
+    Strict Hybrid Extraction with Canonical Deduplication:
+    Scans JD text against a technical vocabulary, normalizes variants (NestJS, React),
+    and eliminates duplicate skill entries.
     """
     if not jd_text or not jd_text.strip():
         return ["Python", "AWS", "Docker", "NestJS", "Next.js"]
 
     text_lower = jd_text.lower()
-    found_skills = set()
+    found_skills_canonical = {}
 
-    for tech in TECH_WHITELIST:
-        pattern = r'(?<!\w)' + re.escape(tech) + r'(?!\w)'
+    for tech_key, display in TECH_WHITELIST.items():
+        pattern = r'(?<!\w)' + re.escape(tech_key) + r'(?!\w)'
         if re.search(pattern, text_lower):
-            if tech in ["aws", "gcp", "ci/cd"]:
-                display = tech.upper()
-            elif tech == "c++":
-                display = "C++"
-            elif tech == "c#":
-                display = "C#"
-            elif tech == "nestjs":
-                display = "NestJS"
-            elif tech in ["next.js", "nextjs"]:
-                display = "Next.js"
-            elif tech in ["node.js", "nodejs"]:
-                display = "Node.js"
-            elif tech in ["postgresql", "postgres"]:
-                display = "PostgreSQL"
-            else:
-                display = tech.title()
-            found_skills.add(display)
+            # Key by lowercase display to deduplicate
+            found_skills_canonical[display.lower()] = display
 
     noise_words = {
         "engineer", "developer", "developing", "develop", "cloud", "apis", "api", "backend", 
@@ -362,11 +368,11 @@ def extract_must_haves_with_keybert(jd_text: str, keybert_model: Any = None, top
         if tokens.intersection(noise_words):
             continue
             
-        for tech in TECH_WHITELIST:
-            if tech in phrase_lower:
-                found_skills.add(tech.title() if tech not in ["c++", "c#"] else tech.upper())
+        for tech_key, display in TECH_WHITELIST.items():
+            if tech_key in phrase_lower:
+                found_skills_canonical[display.lower()] = display
 
-    final_list = sorted(list(found_skills))
+    final_list = sorted(list(found_skills_canonical.values()))
     return final_list if final_list else ["Python", "NestJS", "Next.js", "AWS", "Docker"]
 
 def extract_required_yoe(jd_text: str) -> float:

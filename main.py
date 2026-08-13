@@ -1,5 +1,9 @@
+import os
+os.environ["USE_TF"] = "0"
+os.environ["USE_TORCH"] = "1"
+
 from pathlib import Path
-from src.parser import ResumeParser
+from src.parser import ResumeParser, extract_must_haves_with_keybert, extract_required_yoe
 from src.scorer import HybridScorer
 
 def main():
@@ -17,12 +21,14 @@ def main():
     jd_file = jd_files[0]
     print(f"Loading Job Description: {jd_file.name}")
     
-    if jd_file.suffix.lower() == ".txt":
-        with open(jd_file, "r", encoding="utf-8") as f:
-            jd_text = f.read()
-    else:
-        jd_parsed = parser.parse(str(jd_file))
-        jd_text = jd_parsed["full_text"]
+    jd_text = parser.parse_jd(str(jd_file), file_name=jd_file.name)
+
+    # Auto-extract must-have skills and required YOE from JD
+    must_have_skills = extract_must_haves_with_keybert(jd_text)
+    target_yoe = extract_required_yoe(jd_text)
+
+    print(f"Auto-Extracted Skills: {', '.join(must_have_skills)}")
+    print(f"Required YOE: {target_yoe}")
 
     # 2. Parse Candidate CVs
     cv_folder = Path("sample_cvs")
@@ -41,19 +47,29 @@ def main():
         except Exception as e:
             print(f"Failed to parse {cv_path.name}: {e}")
 
-    # 3. Score & Rank Candidates
+    # 3. Score & Rank Candidates (consolidated pipeline)
     scorer = HybridScorer()
-    ranked_candidates = scorer.score_candidates(jd_text, candidates)
+    ranked_candidates = scorer.score_candidates(
+        jd_text=jd_text,
+        candidates=candidates,
+        must_have_skills=must_have_skills,
+        target_yoe=target_yoe
+    )
 
     # 4. Display Results Table
-    print("\n=======================================================")
-    print("               CANDIDATE RANKING RESULTS               ")
-    print("=======================================================")
-    print(f"{'Rank':<5} | {'Candidate File':<35} | {'Match %':<8} | {'Vector %':<8} | {'BM25 %':<8}")
-    print("-" * 75)
+    print(f"\n{'='*85}")
+    print("                        CANDIDATE RANKING RESULTS")
+    print(f"{'='*85}")
+    print(f"{'Rank':<5} | {'Candidate File':<35} | {'Match %':<8} | {'YOE':<6} | {'Skills':<8}")
+    print("-" * 85)
 
     for rank, cand in enumerate(ranked_candidates, start=1):
-        print(f"{rank:<5} | {cand['file_name'][:35]:<35} | {cand['final_score_pct']:<8}% | {cand['vector_score_pct']:<8}% | {cand['bm25_score_pct']:<8}%")
+        matched_count = len(cand.get("matched_skills", []))
+        total_skills = matched_count + len(cand.get("missing_skills", []))
+        skills_str = f"{matched_count}/{total_skills}" if total_skills > 0 else "N/A"
+        yoe_str = f"{cand.get('candidate_yoe', 0.0)}"
+        
+        print(f"{rank:<5} | {cand['file_name'][:35]:<35} | {cand['final_score_pct']:<8}% | {yoe_str:<6} | {skills_str:<8}")
 
 if __name__ == "__main__":
     main()

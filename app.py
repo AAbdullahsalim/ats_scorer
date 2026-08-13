@@ -12,7 +12,7 @@ import streamlit as st
 
 # Core Engine Imports
 from src.parser import ResumeParser, extract_must_haves_with_keybert, extract_required_yoe
-from src.scorer import HybridScorer, evaluate_must_haves, apply_must_have_penalty, estimate_candidate_yoe, apply_yoe_modifier
+from src.scorer import HybridScorer
 
 # 1. Page Configuration
 st.set_page_config(
@@ -153,34 +153,21 @@ def main():
                     st.error("Could not extract text from the uploaded CVs.")
                     return
 
-                base_results = scorer.score_candidates(
+                # Consolidated scoring: scorer returns fully-computed results
+                # including must-have evaluation, YOE, and recency weighting.
+                # No post-scoring penalty loops needed.
+                final_results = scorer.score_candidates(
                     jd_text=jd_text,
                     candidates=candidates,
+                    must_have_skills=must_have_skills,
+                    target_yoe=target_yoe,
                     vector_weight=vector_weight,
                     bm25_weight=bm25_weight
                 )
 
-                final_results = []
-                for res in base_results:
-                    cv_full_text = " ".join(res.get("sections", {}).values())
-                    base_score = res['final_score_pct']
-                    
-                    must_have_eval = evaluate_must_haves(cv_full_text, must_have_skills)
-                    if strict_mode and must_have_eval["ratio"] < 1.0:
-                        continue
-                        
-                    score_after_skills = apply_must_have_penalty(base_score, must_have_eval["ratio"])
-                    candidate_yoe = estimate_candidate_yoe(cv_full_text)
-                    final_score = apply_yoe_modifier(score_after_skills, candidate_yoe, target_yoe)
-                    
-                    res["base_score"] = base_score
-                    res["final_score_pct"] = final_score
-                    res["matched_skills"] = must_have_eval["matched"]
-                    res["missing_skills"] = must_have_eval["missing"]
-                    res["candidate_yoe"] = candidate_yoe
-                    final_results.append(res)
-
-                final_results = sorted(final_results, key=lambda x: x["final_score_pct"], reverse=True)
+                # Apply strict mode filter (display-only, not a score modification)
+                if strict_mode:
+                    final_results = [r for r in final_results if not r.get("missing_skills")]
                 
                 st.session_state.final_results = final_results
                 st.session_state.must_have_skills = must_have_skills
