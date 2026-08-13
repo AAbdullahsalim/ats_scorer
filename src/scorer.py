@@ -39,32 +39,50 @@ def get_aliases_for_skill(skill: str) -> List[str]:
 
     return list(aliases)
 
-def evaluate_must_haves(candidate_text: str, must_haves: List[str]) -> Dict:
-    """Evaluate which must-have skills are present using bidirectional synonym matching."""
-    if not must_haves:
-        return {"matched": [], "missing": [], "ratio": 1.0}
+def evaluate_skill_context(candidate_sections: Dict[str, str], skills: List[str]) -> Dict:
+    """
+    Evaluate skills with context.
+    If a skill is found in 'experience' or 'projects', it's 'contextual' (Verified).
+    If it's only found in 'skills' or the raw text without context, it's 'stuffed' (Listed).
+    """
+    if not skills:
+        return {"contextual": [], "stuffed": [], "missing": [], "ratio": 1.0}
 
-    text_lower = candidate_text.lower()
-    matched = []
+    exp_text = candidate_sections.get("experience", "").lower()
+    proj_text = candidate_sections.get("projects", "").lower()
+    context_text = exp_text + " " + proj_text
+    
+    # Fallback to full text if sections are completely empty
+    full_text = " ".join([str(v) for v in candidate_sections.values() if v]).lower()
+
+    contextual = []
+    stuffed = []
     missing = []
 
-    for skill in must_haves:
+    for skill in skills:
         aliases = get_aliases_for_skill(skill)
-        found = False
+        found_in_context = False
+        found_anywhere = False
 
         for alias in aliases:
             pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
-            if re.search(pattern, text_lower):
-                found = True
+            if context_text and re.search(pattern, context_text):
+                found_in_context = True
                 break
+            if re.search(pattern, full_text):
+                found_anywhere = True
 
-        if found:
-            matched.append(skill)
+        if found_in_context:
+            contextual.append(skill)
+        elif found_anywhere:
+            stuffed.append(skill)
         else:
             missing.append(skill)
 
-    ratio = len(matched) / len(must_haves) if len(must_haves) > 0 else 1.0
-    return {"matched": matched, "missing": missing, "ratio": ratio}
+    total_found = len(contextual) + len(stuffed)
+    ratio = total_found / len(skills) if len(skills) > 0 else 1.0
+    return {"contextual": contextual, "stuffed": stuffed, "missing": missing, "ratio": ratio}
+
 
 
 # =====================================================================
@@ -346,16 +364,28 @@ class HybridScorer:
         jd_text: str,
         candidates: list[dict],
         must_have_skills: list[str] = None,
+        nice_to_have_skills: list[str] = None,
         target_yoe: float = 0.0,
         vector_weight: float = 0.6,
-        bm25_weight: float = 0.4
+        bm25_weight: float = 0.4,
+        penalty_severity: float = 0.15
     ) -> list[dict]:
         """
-        Consolidated Matrix Scoring Pipeline.
+        Consolidated Matrix Scoring Pipeline with full audit trail.
         Evaluates semantic similarity, BM25, must-have skills, recency, and YOE.
+        Returns fully-computed results with transparent audit breakdown.
+
+        Args:
+            penalty_severity: Maximum fraction of score deducted for missing ALL
+                must-have skills. Range 0.0 (no penalty) to 0.50 (harsh penalty).
+                Default 0.15 means missing ALL skills costs at most 15%.
+            nice_to_have_skills: Optional bonus skills — matching these adds a
+                small boost without penalizing candidates who lack them.
         """
         if must_have_skills is None:
             must_have_skills = []
+        if nice_to_have_skills is None:
+            nice_to_have_skills = []
 
         if not candidates:
             return []
@@ -412,44 +442,99 @@ class HybridScorer:
         # --- ANCHORED CALIBRATION ---
         calibrated_scores = self._calibrate_scores(raw_composite)
 
-        # --- MUST-HAVE SKILL EVALUATION & PENALTY ---
+        # --- MUST-HAVE SKILL EVALUATION & CONFIGURABLE PENALTY ---
         must_have_results = []
+        skill_penalty_pcts = []
         for i, c in enumerate(candidates):
-            full_text = c.get("full_text", "")
-            eval_result = evaluate_must_haves(full_text, must_have_skills)
+            sections = c.get("sections", {})
+            eval_result = evaluate_skill_context(sections, must_have_skills)
             must_have_results.append(eval_result)
 
+            pre_penalty_score = calibrated_scores[i]
             if must_have_skills:
                 coverage = eval_result["ratio"]
-                penalty = 0.85 + (0.15 * coverage)  # Smooth floor at 85% score for 0 skills matched
-                calibrated_scores[i] = round(calibrated_scores[i] * penalty, 2)
+                # penalty_severity controls max deduction: e.g. 0.15 means at most -15%
+                penalty_multiplier = (1.0 - penalty_severity) + (penalty_severity * coverage)
+                calibrated_scores[i] = round(calibrated_scores[i] * penalty_multiplier, 2)
+
+            skill_penalty_pcts.append(round(calibrated_scores[i] - pre_penalty_score, 2))
+
+        # --- NICE-TO-HAVE BONUS ---
+        nice_to_have_results = []
+        bonus_pcts = []
+        for i, c in enumerate(candidates):
+            if nice_to_have_skills:
+                sections = c.get("sections", {})
+                eval_bonus = evaluate_skill_context(sections, nice_to_have_skills)
+                nice_to_have_results.append(eval_bonus)
+                # Max +5% bonus for matching all nice-to-haves
+                bonus = round(calibrated_scores[i] * 0.05 * eval_bonus["ratio"], 2)
+                calibrated_scores[i] = round(min(99.0, calibrated_scores[i] + bonus), 2)
+                bonus_pcts.append(bonus)
+            else:
+                nice_to_have_results.append({"contextual": [], "stuffed": [], "missing": [], "ratio": 0.0})
+                bonus_pcts.append(0.0)
 
         # --- YOE EXTRACTION & MODIFIER ---
         candidate_yoes = []
+        yoe_modifier_pcts = []
         for i, c in enumerate(candidates):
             sections = c.get("sections", {})
             yoe = estimate_candidate_yoe(sections if sections else c.get("full_text", ""))
             candidate_yoes.append(yoe)
 
+            pre_yoe_score = calibrated_scores[i]
             if target_yoe > 0.0:
                 if yoe >= target_yoe:
                     calibrated_scores[i] = round(min(99.0, calibrated_scores[i] * 1.05), 2)
                 elif 0 < yoe < target_yoe:
                     calibrated_scores[i] = round(calibrated_scores[i] * 0.96, 2)
 
-        # --- BUILD RESULTS ---
+            yoe_modifier_pcts.append(round(calibrated_scores[i] - pre_yoe_score, 2))
+
+        # --- BUILD RESULTS WITH FULL AUDIT TRAIL ---
         results = []
         for i, c in enumerate(candidates):
+            
+            # Raw point sub-scores (out of their maximum weight)
+            skill_match_pts = round(skills_cosine[i] * 35, 1)
+            recent_exp_pts = round(recent_exp_cosine[i] * 45, 1)
+            older_exp_pts = round(older_exp_cosine[i] * 20, 1)
+            bm25_pts = round(bm25_scores[i] * 100, 1)
+            
+            all_matched_must_haves = must_have_results[i]["contextual"] + must_have_results[i]["stuffed"]
+            all_matched_nice = nice_to_have_results[i]["contextual"] + nice_to_have_results[i]["stuffed"]
+
             results.append({
                 "file_name": c["file_name"],
                 "final_score_pct": calibrated_scores[i],
-                "base_score": calibrated_scores[i],
                 "vector_score_pct": round(vector_scores[i] * 100, 2),
                 "bm25_score_pct": round(bm25_scores[i] * 100, 2),
-                "matched_skills": must_have_results[i]["matched"],
+                "matched_skills": all_matched_must_haves,  # backward compatibility
+                "contextual_skills": must_have_results[i]["contextual"],
+                "stuffed_skills": must_have_results[i]["stuffed"],
                 "missing_skills": must_have_results[i]["missing"],
+                "nice_to_have_matched": all_matched_nice,
                 "candidate_yoe": candidate_yoes[i],
-                "sections": c.get("sections", {})
+                "sections": c.get("sections", {}),
+                "audit": {
+                    "subscores": {
+                        "skill_match": skill_match_pts,
+                        "recent_exp": recent_exp_pts,
+                        "older_exp": older_exp_pts,
+                        "bm25_keyword": bm25_pts
+                    },
+                    "skills_similarity_pct": round(skills_cosine[i] * 100, 2),
+                    "recent_exp_similarity_pct": round(recent_exp_cosine[i] * 100, 2),
+                    "older_exp_similarity_pct": round(older_exp_cosine[i] * 100, 2),
+                    "raw_vector_pct": round(vector_scores[i] * 100, 2),
+                    "raw_bm25_pct": round(bm25_scores[i] * 100, 2),
+                    "composite_base_pct": round(self._calibrate_scores([raw_composite[i]])[0], 2),
+                    "must_have_penalty_pct": skill_penalty_pcts[i],
+                    "nice_to_have_bonus_pct": bonus_pcts[i],
+                    "yoe_modifier_pct": yoe_modifier_pcts[i],
+                    "calibrated_final_pct": calibrated_scores[i]
+                }
             })
 
         return sorted(results, key=lambda x: x["final_score_pct"], reverse=True)

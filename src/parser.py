@@ -337,9 +337,20 @@ def extract_must_haves_with_keybert(jd_text: str, keybert_model: Any = None, top
     Strict Hybrid Extraction with Canonical Deduplication:
     Scans JD text against a technical vocabulary, normalizes variants (NestJS, React),
     and eliminates duplicate skill entries.
+    Returns must-have skills list (backward-compatible).
+    """
+    must_haves, _ = extract_skills_dual(jd_text, keybert_model=keybert_model, top_n=top_n)
+    return must_haves
+
+
+def extract_skills_dual(jd_text: str, keybert_model: Any = None, top_n: int = 15) -> tuple:
+    """
+    Returns (must_have_skills, nice_to_have_skills).
+    Must-haves: tech whitelist matches found in JD text.
+    Nice-to-haves: KeyBERT-extracted terms NOT in whitelist but still relevant.
     """
     if not jd_text or not jd_text.strip():
-        return ["Python", "AWS", "Docker", "NestJS", "Next.js"]
+        return (["Python", "AWS", "Docker", "NestJS", "Next.js"], [])
 
     text_lower = jd_text.lower()
     found_skills_canonical = {}
@@ -361,19 +372,34 @@ def extract_must_haves_with_keybert(jd_text: str, keybert_model: Any = None, top
         keybert_model = KeyBERT(model='all-MiniLM-L6-v2')
 
     keywords = keybert_model.extract_keywords(jd_text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=20)
+
+    nice_to_haves_set = {}  # {lowercase: display_form}
+
     for kw, score in keywords:
         phrase_lower = kw.lower().strip()
         tokens = set(phrase_lower.split())
         
         if tokens.intersection(noise_words):
             continue
-            
+        
+        matched_whitelist = False
         for tech_key, display in TECH_WHITELIST.items():
             if tech_key in phrase_lower:
                 found_skills_canonical[display.lower()] = display
+                matched_whitelist = True
 
-    final_list = sorted(list(found_skills_canonical.values()))
-    return final_list if final_list else ["Python", "NestJS", "Next.js", "AWS", "Docker"]
+        # If KeyBERT found it but it's NOT in the whitelist, it's a nice-to-have
+        if not matched_whitelist and phrase_lower not in found_skills_canonical:
+            display_form = kw.strip().title()
+            nice_to_haves_set[phrase_lower] = display_form
+
+    must_have_list = sorted(list(found_skills_canonical.values()))
+    nice_to_have_list = sorted(list(nice_to_haves_set.values()))
+
+    if not must_have_list:
+        must_have_list = ["Python", "NestJS", "Next.js", "AWS", "Docker"]
+
+    return (must_have_list, nice_to_have_list)
 
 def extract_required_yoe(jd_text: str) -> float:
     text_lower = jd_text.lower()
