@@ -10,7 +10,8 @@ class ResumeParser:
         self.section_keywords = {
             "experience": ["experience", "work history", "employment history", "professional experience"],
             "skills": ["skills", "technical skills", "competencies", "core qualifications"],
-            "education": ["education", "academic background", "degrees", "qualifications"]
+            "education": ["education", "academic background", "degrees", "qualifications"],
+            "projects": ["projects", "project experience", "key projects", "selected projects"]
         }
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
@@ -36,8 +37,16 @@ class ResumeParser:
 
     def split_into_sections(self, text: str) -> dict:
         lines = text.split('\n')
-        sections = {"experience": [], "skills": [], "education": [], "other": []}
+        # Added "projects" to prevent KeyError when project sections are encountered
+        sections = {"experience": [], "skills": [], "education": [], "projects": [], "other": []}
         current_section = "other"
+
+        self.section_keywords = {
+            "experience": ["experience", "work history", "employment history", "professional experience"],
+            "skills": ["skills", "technical skills", "competencies", "core qualifications"],
+            "education": ["education", "academic background", "degrees", "qualifications"],
+            "projects": ["projects", "project experience", "key projects", "selected projects"]
+        }
 
         for line in lines:
             line_clean = line.strip().lower()
@@ -51,10 +60,12 @@ class ResumeParser:
                 if matched:
                     continue
 
-            sections[current_section].append(line)
+            if current_section in sections:
+                sections[current_section].append(line)
+            else:
+                sections["other"].append(line)
 
         return {k: "\n".join(v).strip() for k, v in sections.items()}
-
     def parse(self, file_path: str) -> dict:
         path = Path(file_path)
         if not path.exists():

@@ -27,7 +27,6 @@ def load_parser():
     return ResumeParser()
 
 # --- ISOLATED FRAGMENT FOR SKILL & REQUIREMENT CONTROLS ---
-# Using @st.fragment prevents adding/removing skills from reloading the whole app!
 @st.fragment
 def render_requirements_editor(uploaded_jd, parser):
     if not uploaded_jd:
@@ -42,7 +41,6 @@ def render_requirements_editor(uploaded_jd, parser):
     with open(jd_path, "wb") as f:
         f.write(uploaded_jd.getbuffer())
     
-    # Cache JD parsing state per file to prevent redundant IO overhead
     @st.cache_data
     def cached_parse_jd(path):
         text = parser.parse_jd(path)
@@ -104,7 +102,6 @@ def render_requirements_editor(uploaded_jd, parser):
 
 
 def main():
-    # --- INITIAL BOOT SKELETON PLACEHOLDER ---
     placeholder = st.empty()
     
     with placeholder.container():
@@ -130,7 +127,6 @@ def main():
     vector_weight = st.sidebar.slider("Semantic Vector Weight", 0.0, 1.0, 0.6)
     bm25_weight = st.sidebar.slider("Keyword BM25 Weight", 0.0, 1.0, 0.4)
 
-    # Render isolated requirement component fragment
     jd_text, must_have_skills, target_yoe, strict_mode = render_requirements_editor(uploaded_jd, parser)
 
     # SCORING EXECUTION
@@ -216,7 +212,8 @@ def main():
 
             df_results = pd.DataFrame(display_data)
             st.dataframe(df_results, use_container_width=True, hide_index=True)
-# --- PROFESSIONAL EXCEL REPORT EXPORT (WITH CONTACTS & ROW COLORING) ---
+
+            # --- PROFESSIONAL EXCEL REPORT EXPORT (WITH AUTO-FIT, CONTACTS & ROW COLORING) ---
             import io
             import openpyxl
             from openpyxl.styles import PatternFill
@@ -225,12 +222,9 @@ def main():
             for idx, res in enumerate(final_results, start=1):
                 score = round(res.get("final_score_pct", 0.0), 2)
                 
-                # Combine all section texts to ensure contact details are fully searchable
                 sections_dict = res.get("sections", {})
                 full_search_text = " ".join([str(v) for v in sections_dict.values() if v])
                 
-                # Robust Contact Regex Extractors
-                import re
                 email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', full_search_text)
                 phone_match = re.search(r'(?:\+\d{1,3}\s?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,13}', full_search_text)
                 linkedin_match = re.search(r'(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[\w\-_%]+', full_search_text)
@@ -252,7 +246,6 @@ def main():
                     "Estimated Experience (Years)": res.get("candidate_yoe", 0.0),
                     "Matched Skills": matched_skills_full,
                     "Missing Skills": missing_skills_full
-                    # "Source File" column completely removed
                 })
 
             df_export = pd.DataFrame(export_rows)
@@ -267,21 +260,32 @@ def main():
             ws = wb.active
 
             red_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')  # Soft red for < 50%
-            green_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid') # Soft green for >= 75%
+            green_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid') # Soft green for >= 65%
 
             for row_idx in range(2, ws.max_row + 1):
-                # Score is in column F (index 6)
                 score_cell = ws.cell(row=row_idx, column=6)
                 try:
                     score_val = float(score_cell.value)
                     if score_val < 50.0:
                         for col_idx in range(1, ws.max_column + 1):
                             ws.cell(row=row_idx, column=col_idx).fill = red_fill
-                    elif score_val >= 75.0:
+                    elif score_val >= 65.0:
                         for col_idx in range(1, ws.max_column + 1):
                             ws.cell(row=row_idx, column=col_idx).fill = green_fill
                 except (ValueError, TypeError):
                     pass
+
+            # --- AUTO-FIT COLUMN WIDTHS SO ALL TEXT IS FULLY VISIBLE ---
+            for col in ws.columns:
+                max_length = 0
+                col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                for cell in col:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+                ws.column_dimensions[col_letter].width = max(max_length + 4, 15)
 
             final_excel_output = io.BytesIO()
             wb.save(final_excel_output)
@@ -294,6 +298,7 @@ def main():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary"
             )
+
             # --- DETAILED INSPECTION CARD SELECTOR ---
             st.markdown("---")
             st.markdown("### Candidate Skill Inspection Dossier")

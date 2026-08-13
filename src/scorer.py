@@ -180,32 +180,58 @@ def apply_must_have_penalty(base_hybrid_score: float, coverage_ratio: float, flo
     penalty_multiplier = floor_penalty + ((1.0 - floor_penalty) * coverage_ratio)
     return round(base_hybrid_score * penalty_multiplier, 2)
 
-def estimate_candidate_yoe(cv_text_or_sections):
+def estimate_candidate_yoe(cv_text_or_sections) -> float:
+    """
+    Production-grade YOE extraction:
+    1. Checks for explicit statements (e.g., '5+ years of experience').
+    2. Focuses strictly on experience sections with flexible matching.
+    3. Calculates professional date ranges while filtering out academic and project noise.
+    """
     full_text = ""
     exp_text = ""
     
     if isinstance(cv_text_or_sections, dict):
         exp_text = cv_text_or_sections.get("experience", "")
-        full_text = " ".join(cv_text_or_sections.values())
+        full_text = " ".join([v for v in cv_text_or_sections.values() if v])
+        if not exp_text.strip():
+            exp_text = full_text
     else:
         full_text = str(cv_text_or_sections)
         exp_text = full_text
 
+    # --- STEP 1: Check for explicit professional experience statements ---
     explicit_patterns = [
-        r'(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)(?:\s+of)?\s+(?:experience|exp)',
-        r'(?:experience|exp)(?:\s+of)?\s+(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)'
+        r'(?:over|more than|\+)?\s*(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)(?:\s+of)?\s+(?:professional\s+)?(?:experience|exp)',
+        r'(?:experience|exp)(?:\s+of)?\s+(?:over|more than|\+)?\s*(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)'
     ]
     
+    # Search first in full text or summary for explicit declarations
     for pat in explicit_patterns:
         match = re.search(pat, full_text, re.IGNORECASE)
         if match:
             try:
                 val = float(match.group(1))
-                if 0 < val < 40:
+                if 0.5 <= val < 40:
                     return val
             except ValueError:
                 pass
 
+    # --- STEP 2: Clean and filter the experience section text ---
+    lines = exp_text.split('\n')
+    filtered_exp_lines = []
+    academic_or_project_keywords = [
+        'university', 'college', 'school', 'b.s', 'bs ', 'b.sc', 'bachelor', 
+        'project', 'semester', 'a-levels', 'education', 'coursework', 'thesis'
+    ]
+    
+    for line in lines:
+        line_lower = line.lower()
+        if not any(kw in line_lower for kw in academic_or_project_keywords):
+            filtered_exp_lines.append(line)
+            
+    clean_exp_text = "\n".join(filtered_exp_lines)
+
+    # --- STEP 3: Professional Date Range Extraction ---
     date_range_pattern = re.compile(
         r'(0[1-9]|1[0-2])/(\d{4})\s*[-–to]+\s*(?:(0[1-9]|1[0-2])/(\d{4})|[Pp]resent|[Cc][Uu][Rr][Rr][Ee][Nn][Tt])|'
         r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s*(\d{4})\s*[-–to]+\s*(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s*(\d{4})|[Pp]resent|[Cc][Uu][Rr][Rr][Ee][Nn][Tt])|'
@@ -216,14 +242,15 @@ def estimate_candidate_yoe(cv_text_or_sections):
     current_year = datetime.now().year
     current_month = datetime.now().month
 
-    matches = date_range_pattern.findall(exp_text if exp_text.strip() else full_text)
+    matches = date_range_pattern.findall(clean_exp_text)
     total_months = 0
+    parsed_ranges = []
 
     for match in matches:
         start_yr, end_yr = None, None
         start_mo, end_mo = 1, 1
 
-        if match[1]:
+        if match[1]: # MM/YYYY format
             start_mo = int(match[0])
             start_yr = int(match[1])
             if match[3]:
@@ -232,14 +259,14 @@ def estimate_candidate_yoe(cv_text_or_sections):
             else:
                 end_yr = current_year
                 end_mo = current_month
-        elif match[5]:
+        elif match[5]: # Month YYYY format
             start_yr = int(match[5])
             if match[6]:
                 end_yr = int(match[6])
             else:
                 end_yr = current_year
                 end_mo = current_month
-        elif match[7]:
+        elif match[7]: # YYYY - YYYY format
             try:
                 start_yr = int(match[7])
                 end_str = match[8]
@@ -253,14 +280,26 @@ def estimate_candidate_yoe(cv_text_or_sections):
 
         if start_yr and end_yr:
             duration = (end_yr - start_yr) * 12 + (end_mo - start_mo)
-            if 0 < duration <= 60 and duration != 48:
-                total_months += duration
+            # Filter out unreasonable ranges (< 1 month or > 40 years per stint)
+            if 0 < duration <= 480:
+                parsed_ranges.append((start_yr * 12 + start_mo, end_yr * 12 + end_mo))
 
-    if total_months > 0:
-        return round(total_months / 12.0, 1)
+    if not parsed_ranges:
+        return 0.0
 
-    return 0.0
+    # Merge overlapping employment date ranges to prevent double-counting concurrent roles
+    parsed_ranges.sort(key=lambda x: x[0])
+    merged_ranges = [parsed_ranges[0]]
+    
+    for current_start, current_end in parsed_ranges[1:]:
+        prev_start, prev_end = merged_ranges[-1]
+        if current_start <= prev_end: # Overlap or continuous
+            merged_ranges[-1] = (prev_start, max(prev_end, current_end))
+        else:
+            merged_ranges.append((current_start, current_end))
 
+    total_months = sum(end - start for start, end in merged_ranges)
+    return round(total_months / 12.0, 1)
 def apply_yoe_modifier(base_score: float, candidate_yoe: float, required_yoe: float) -> float:
     if required_yoe == 0.0:
         return base_score 
