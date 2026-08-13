@@ -1,4 +1,7 @@
 import os
+os.environ["USE_TF"] = "0"
+os.environ["USE_TORCH"] = "1"
+
 import io
 import re
 from pathlib import Path
@@ -6,9 +9,6 @@ import pandas as pd
 import openpyxl
 from openpyxl.styles import PatternFill
 import streamlit as st
-
-from sentence_transformers import SentenceTransformer
-from keybert import KeyBERT
 
 # Core Engine Imports
 from src.parser import ResumeParser, extract_must_haves_with_keybert, extract_required_yoe
@@ -25,6 +25,9 @@ st.set_page_config(
 # --- CENTRALIZED LAZY-LOADED MODEL REGISTRY ---
 @st.cache_resource(show_spinner="Initializing AI Model Registry...")
 def get_model_registry():
+    from sentence_transformers import SentenceTransformer
+    from keybert import KeyBERT
+
     transformer = SentenceTransformer("all-MiniLM-L6-v2")
     keybert_model = KeyBERT(model=transformer)
     scorer = HybridScorer(vector_model=transformer)
