@@ -47,10 +47,9 @@ RECENT_EXP_WEIGHT: float = 0.45
 OLDER_EXP_WEIGHT: float = 0.20
 
 # === Calibration Anchors ===
-CALIBRATION_FLOOR: float = 0.08
-CALIBRATION_CEILING: float = 0.60
+CALIBRATION_FLOOR: float = 0.10
+CALIBRATION_CEILING: float = 0.52
 
 # === Penalty Config ===
-# Low penalty — missing skills are shown visually, not crushed numerically
-MUST_HAVE_PENALTY_SEVERITY: float = 0.08
+MUST_HAVE_PENALTY_SEVERITY: float = 0.40
 NICE_TO_HAVE_BONUS_MAX: float = 0.05

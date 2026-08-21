@@ -14,26 +14,29 @@
   --spacing-89: 89px;
   --spacing-144: 144px;
 
-  /* Minimalist Color Palette */
-  --color-background: #FAFAF9; /* Warm Alabaster */
-  --color-foreground: #1C1917; /* Deep Slate */
+  /* Premium Dark Color Palette requested by user */
+  --color-background: #0d1415; 
+  --color-foreground: #f0f0f0; 
   
-  --color-primary: #C5A059; /* Muted Gold */
-  --color-primary-foreground: #FFFFFF;
+  --color-primary: #0d3b45; 
+  --color-primary-foreground: #ffffff;
   
-  --color-secondary: #E7E5E4;
-  --color-secondary-foreground: #1C1917;
+  --color-secondary: #56616c;
+  --color-secondary-foreground: #ffffff;
 
-  --color-muted: #F5F5F4;
-  --color-muted-foreground: #78716C;
+  --color-accent: #5e8d77;
+  --color-accent-foreground: #ffffff;
 
-  --color-success: #274C3B; /* Deep Forest Green */
-  --color-success-foreground: #FFFFFF;
+  --color-muted: #1a2729;
+  --color-muted-foreground: #8a9ba8;
+
+  --color-success: #5e8d77;
+  --color-success-foreground: #ffffff;
   
-  --color-error: #7F1D1D;
-  --color-error-foreground: #FEF2F2;
+  --color-error: #ef4444; /* Vibrant red for low scores */
+  --color-error-foreground: #ffffff;
   
-  --color-border: #E7E5E4;
+  --color-border: #56616c;
   
   --radius-sm: 8px;
   --radius-md: 13px;
@@ -46,6 +49,7 @@
   :root {
     --background: var(--color-background);
     --foreground: var(--color-foreground);
+    color-scheme: dark;
   }
 }
 
@@ -54,9 +58,7 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family: Arial, Helvetica, sans-serif;
-    /* Subtle dot grid for premium feel */
-    background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
-    background-size: var(--spacing-34) var(--spacing-34);
+    /* Noise texture will be overlaid as a component, base bg is dark */
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 }

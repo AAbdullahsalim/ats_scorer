@@ -28,6 +28,7 @@ from .calibrator import (
     apply_skill_penalty,
     apply_nice_to_have_bonus,
     apply_yoe_modifier,
+    apply_leader_relative_scaling,
 )
 
 
@@ -192,6 +193,10 @@ class ScoringPipeline:
                 calibrated[i], yoe, target_yoe
             )
             yoe_amounts.append(yoe_mod)
+
+        # === Leader-Anchored Relative Normalization ===
+        # Anchor the top candidate to 94%+ and generalize a proportionate boost to candidates >= 20%
+        calibrated = apply_leader_relative_scaling(calibrated, target_top=94.0, min_qualification_threshold=20.0)
 
         # === Build results ===
         results: list[CandidateResult] = []

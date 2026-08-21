@@ -1,10 +1,10 @@
 "use client";
 
+import React from "react";
 import { X, Mail, Phone, Link, MapPin, Award, CheckCircle2, XCircle } from "lucide-react";
 import BorderGlow from "@/components/BorderGlow";
 import CountUp from "@/components/CountUp";
-import SplitFlapText from "@/components/SplitFlapText";
-import GradientWaves from "@/components/GradientWaves";
+import { cn } from "@/lib/utils";
 
 interface GamerProfileModalProps {
   candidate: any;
@@ -29,78 +29,92 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
     candidate_summary,
   } = candidate;
 
-  const totalSkills = contextual_skills.length + missing_skills.length + stuffed_skills.length;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0D1117]/95 backdrop-blur-sm p-4 md:p-8 overflow-y-auto">
-      <div className="relative z-10 w-full max-w-6xl">
-        <BorderGlow glowColor="79 70 229" backgroundColor="#161B22" className="w-full">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md p-4 md:p-8 flex justify-center items-start">
+      <div className="relative z-10 w-full max-w-6xl my-auto">
+        <BorderGlow glowColor="94 141 119" backgroundColor="#0d1415" className="w-full">
           <div className="relative w-full p-8 md:p-10 text-gray-200">
             
             {/* Close Button */}
             <button 
               onClick={onClose}
-              className="absolute top-6 right-6 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors z-20"
+              className="absolute top-7 right-7 overflow-hidden w-[34px] h-[34px] flex items-center justify-center bg-white/5 hover:bg-red-500/20 hover:text-red-400 rounded-full text-gray-300 hover:border-red-500/40 border border-white/10 transition-all active:scale-95 shadow-sm z-20"
+              title="Close"
             >
-              <X size={20} />
+              <div 
+                className="absolute inset-0 pointer-events-none opacity-25 mix-blend-overlay"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: "repeat",
+                }}
+              />
+              <X size={17} className="relative z-10" />
             </button>
 
-            {/* HEADER: Rank & Name */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-white/5 pb-8 mb-8">
-              <div className="flex items-center gap-6">
-                <div className="flex flex-col items-center justify-center w-16 h-16 rounded-xl bg-[#21262D] border border-white/10 font-bold text-3xl text-indigo-400 shadow-md">
+            {/* HEADER: Rank, Name & Score */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-white/10 pb-7 mb-7 pr-12 gap-6">
+              <div className="flex items-center gap-5">
+                <div className="flex flex-col items-center justify-center w-16 h-16 rounded-2xl bg-primary/20 border border-primary/40 font-black text-3xl text-accent shadow-[0_0_20px_rgba(94,141,119,0.25)]">
                   #{rank}
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-white tracking-tight">{candidate_name}</h1>
-                  <p className="text-gray-400 text-sm mt-1 uppercase tracking-wider font-medium">{current_role || "Candidate"}</p>
+                  <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+                    {candidate_name}
+                  </h1>
+                  <p className="text-gray-400 text-sm mt-1 uppercase tracking-widest font-semibold">
+                    {current_role || "Candidate"}
+                  </p>
                 </div>
               </div>
               
-              <div className="mt-6 md:mt-0 text-right">
-                <p className="text-gray-500 uppercase tracking-widest text-xs mb-1 font-semibold">Final Match Score</p>
-                <div className="text-5xl font-bold text-emerald-400 flex items-end justify-end">
+              <div className="text-left md:text-right">
+                <p className="text-gray-400 uppercase tracking-widest text-xs mb-1 font-semibold">
+                  Final Match Score
+                </p>
+                <div className="text-4xl md:text-5xl font-black text-emerald-400 flex items-end md:justify-end drop-shadow-[0_0_25px_rgba(52,211,153,0.35)]">
                   <CountUp to={final_score_pct} decimals={1} duration={1} />
-                  <span className="text-2xl ml-1 mb-1">%</span>
+                  <span className="text-2xl md:text-3xl ml-1 mb-1 font-bold">%</span>
                 </div>
               </div>
             </div>
 
-            {/* CONTACT INFO */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 bg-[#0D1117] p-4 rounded-xl border border-white/5">
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Mail className="text-gray-500" size={16} />
+            {/* CONTACT INFO BAR */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 bg-black/30 p-4 rounded-2xl border border-white/5 text-xs font-medium">
+              <div className="flex items-center gap-2.5 text-gray-300">
+                <Mail className="text-accent shrink-0" size={15} />
                 <span className="truncate">{contact?.email || "N/A"}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Phone className="text-gray-500" size={16} />
+              <div className="flex items-center gap-2.5 text-gray-300">
+                <Phone className="text-accent shrink-0" size={15} />
                 <span className="truncate">{contact?.phone || "N/A"}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Link className="text-gray-500" size={16} />
+              <div className="flex items-center gap-2.5 text-gray-300">
+                <Link className="text-accent shrink-0" size={15} />
                 <span className="truncate">{contact?.linkedin || "N/A"}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <MapPin className="text-gray-500" size={16} />
+              <div className="flex items-center gap-2.5 text-gray-300">
+                <MapPin className="text-accent shrink-0" size={15} />
                 <span className="truncate">{contact?.location || "N/A"}</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            {/* 2-COLUMN BALANCED CONTENT GRID */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10">
+              
               {/* LEFT COLUMN: Summary & Sub-scores */}
               <div className="flex flex-col gap-8">
                 <div>
-                  <h3 className="text-xl font-bold flex items-center gap-2 mb-4 text-white/90">
-                    <Award className="text-yellow-500" /> AI Candidate Summary
+                  <h3 className="text-base font-bold flex items-center gap-2.5 mb-3.5 text-white">
+                    <Award className="text-accent" size={18} /> AI Candidate Summary
                   </h3>
-                  <div className="p-6 bg-indigo-950/30 rounded-xl border border-indigo-500/20 text-gray-300 leading-relaxed text-lg">
+                  <div className="p-6 bg-secondary/10 rounded-2xl border border-border text-gray-300 leading-relaxed text-sm shadow-[inset_0_2px_8px_rgba(0,0,0,0.4)]">
                     {candidate_summary || "No summary available."}
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="text-xl font-bold mb-4 text-white/90">Explainable Sub-Scores</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h3 className="text-base font-bold mb-3.5 text-white">Explainable Sub-Scores</h3>
+                  <div className="grid grid-cols-2 gap-3.5">
                     <ScoreCard label="Skill Match" value={audit?.subscores?.skill_match} max={35} />
                     <ScoreCard label="Recent Exp Match" value={audit?.subscores?.recent_exp} max={45} />
                     <ScoreCard label="Older Exp Match" value={audit?.subscores?.older_exp} max={20} />
@@ -109,40 +123,67 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: Skills Analysis */}
+              {/* RIGHT COLUMN: Section Match & Skill Badges */}
               <div className="flex flex-col gap-8">
                 <div>
-                  <h3 className="text-xl font-bold mb-6 text-white/90">Section Match Analysis</h3>
-                  <div className="flex flex-col gap-5">
-                    <ProgressBarItem label="Skills Section" pct={(audit?.subscores?.skill_match / 35) * 100 || 0} color="bg-blue-500" />
-                    <ProgressBarItem label="Recent Experience" pct={(audit?.subscores?.recent_exp / 45) * 100 || 0} color="bg-green-500" />
-                    <ProgressBarItem label="Older Experience" pct={(audit?.subscores?.older_exp / 20) * 100 || 0} color="bg-purple-500" />
-                    <ProgressBarItem label="BM25 Keywords" pct={audit?.subscores?.bm25_keyword || 0} color="bg-yellow-500" />
+                  <h3 className="text-base font-bold mb-3.5 text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                    Section Match Analysis
+                  </h3>
+                  <div className="flex flex-col gap-4 bg-black/30 p-5 rounded-2xl border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
+                    <ProgressBarItem 
+                      label="Skills Section" 
+                      pct={(audit?.subscores?.skill_match / 35) * 100 || 0} 
+                      gradient="bg-gradient-to-r from-[#2d6a4f] to-[#52b788]"
+                      glowColor="rgba(82,183,136,0.3)" 
+                    />
+                    <ProgressBarItem 
+                      label="Recent Experience" 
+                      pct={(audit?.subscores?.recent_exp / 45) * 100 || 0} 
+                      gradient="bg-gradient-to-r from-[#1b4332] to-[#40916c]"
+                      glowColor="rgba(64,145,108,0.3)" 
+                    />
+                    <ProgressBarItem 
+                      label="Older Experience" 
+                      pct={(audit?.subscores?.older_exp / 20) * 100 || 0} 
+                      gradient="bg-gradient-to-r from-[#081c15] to-[#2d6a4f]"
+                      glowColor="rgba(45,106,79,0.25)" 
+                    />
+                    <ProgressBarItem 
+                      label="BM25 Keywords" 
+                      pct={audit?.subscores?.bm25_keyword || 0} 
+                      gradient="bg-gradient-to-r from-[#1f4e5b] to-[#5e8d77]"
+                      glowColor="rgba(94,141,119,0.35)" 
+                    />
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="text-xl font-bold mb-6 text-white/90 flex justify-between items-end">
-                    Skill Badge Matrix
-                    <span className="text-sm font-normal text-gray-400">{candidate_yoe} Est. Years Experience</span>
+                  <h3 className="text-base font-bold mb-3.5 text-white flex justify-between items-end">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-accent" />
+                      Skill Badge Matrix
+                    </span>
+                    <span className="text-xs font-mono font-normal text-accent">{candidate_yoe} Est. Years Experience</span>
                   </h3>
                   
-                  <div className="flex flex-wrap gap-2">
+                  <div className="bg-black/30 p-5 rounded-2xl border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] flex flex-wrap gap-2.5 max-h-60 overflow-y-auto scrollbar-thin">
                     {contextual_skills.map((s: string) => (
-                      <Badge key={s} type="verified">{s} (Verified)</Badge>
+                      <Badge key={s} type="verified">{s}</Badge>
                     ))}
                     {stuffed_skills.map((s: string) => (
-                      <Badge key={s} type="stuffed">{s} (Listed Only)</Badge>
+                      <Badge key={s} type="stuffed">{s}</Badge>
                     ))}
                     {missing_skills.map((s: string) => (
-                      <Badge key={s} type="missing">{s} (Missing)</Badge>
+                      <Badge key={s} type="missing">{s}</Badge>
                     ))}
                     {nice_to_have_matched.map((s: string) => (
-                      <Badge key={s} type="bonus">{s} (Bonus)</Badge>
+                      <Badge key={s} type="bonus">{s}</Badge>
                     ))}
                   </div>
                 </div>
               </div>
+
             </div>
 
           </div>
@@ -156,27 +197,41 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
 
 function ScoreCard({ label, value, max }: { label: string, value: number, max: number }) {
   return (
-    <div className="bg-[#0D1117] border border-white/5 rounded-xl p-4 flex flex-col justify-between">
-      <span className="text-xs text-gray-500 uppercase tracking-wider font-medium">{label}</span>
-      <div className="mt-2 text-2xl font-bold text-gray-200 flex items-baseline gap-1">
+    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-between shadow-[inset_0_2px_8px_rgba(0,0,0,0.5)]">
+      <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">{label}</span>
+      <div className="mt-2 text-2xl font-black text-gray-100 flex items-baseline gap-1">
         <CountUp to={value || 0} decimals={1} duration={1} />
-        <span className="text-xs text-gray-600 font-normal">/ {max} pts</span>
+        <span className="text-xs text-gray-500 font-normal">/ {max} pts</span>
       </div>
     </div>
   );
 }
 
-function ProgressBarItem({ label, pct, color }: { label: string, pct: number, color: string }) {
+function ProgressBarItem({ 
+  label, 
+  pct, 
+  gradient, 
+  glowColor 
+}: { 
+  label: string, 
+  pct: number, 
+  gradient: string, 
+  glowColor: string 
+}) {
+  const safePct = Math.max(0, Math.min(100, isNaN(pct) ? 0 : pct));
   return (
     <div className="w-full">
-      <div className="flex justify-between text-xs mb-1.5">
-        <span className="text-gray-400">{label}</span>
-        <span className="text-gray-300 font-mono">{pct.toFixed(1)}%</span>
+      <div className="flex justify-between text-xs mb-1.5 font-medium">
+        <span className="text-gray-300 font-mono text-xs">{label}</span>
+        <span className="text-accent font-mono font-bold">{safePct.toFixed(1)}%</span>
       </div>
-      <div className="w-full h-2 bg-[#0D1117] rounded-full overflow-hidden border border-white/5">
+      <div className="w-full h-2.5 bg-black/60 rounded-full overflow-hidden border border-white/5 p-0.5 shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)]">
         <div 
-          className={`h-full rounded-full ${color} transition-all duration-1000 ease-out opacity-80`} 
-          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} 
+          className={cn("h-full rounded-full transition-all duration-1000 ease-out", gradient)} 
+          style={{ 
+            width: `${safePct}%`,
+            boxShadow: `0 0 12px ${glowColor}`
+          }} 
         />
       </div>
     </div>
@@ -185,23 +240,44 @@ function ProgressBarItem({ label, pct, color }: { label: string, pct: number, co
 
 function Badge({ children, type }: { children: React.ReactNode, type: 'verified' | 'stuffed' | 'missing' | 'bonus' }) {
   const styles = {
-    verified: "bg-emerald-950/30 border-emerald-900/50 text-emerald-400",
-    stuffed: "bg-yellow-950/30 border-yellow-900/50 text-yellow-400",
-    missing: "bg-red-950/30 border-red-900/50 text-red-400",
-    bonus: "bg-indigo-950/30 border-indigo-900/50 text-indigo-400",
+    verified: "bg-emerald-950/60 border-emerald-500/40 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.18)] hover:border-emerald-400 hover:bg-emerald-900/50",
+    stuffed: "bg-amber-950/60 border-amber-500/40 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.18)] hover:border-amber-400 hover:bg-amber-900/50",
+    missing: "bg-rose-950/60 border-rose-500/40 text-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.18)] hover:border-rose-400 hover:bg-rose-900/50",
+    bonus: "bg-cyan-950/60 border-cyan-500/40 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.18)] hover:border-cyan-400 hover:bg-cyan-900/50",
+  };
+
+  const labels = {
+    verified: "Verified",
+    stuffed: "Listed Only",
+    missing: "Missing",
+    bonus: "Bonus",
   };
 
   const icons = {
-    verified: <CheckCircle2 size={12} className="mr-1.5 opacity-70" />,
-    stuffed: <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/70 mr-2" />,
-    missing: <XCircle size={12} className="mr-1.5 opacity-70" />,
-    bonus: <Award size={12} className="mr-1.5 opacity-70" />,
+    verified: <CheckCircle2 size={13} className="mr-1.5 text-emerald-400 shrink-0" />,
+    stuffed: <div className="w-2 h-2 rounded-full bg-amber-400 mr-1.5 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.8)]" />,
+    missing: <XCircle size={13} className="mr-1.5 text-rose-400 shrink-0" />,
+    bonus: <Award size={13} className="mr-1.5 text-cyan-400 shrink-0" />,
   };
 
   return (
-    <span className={`flex items-center px-2.5 py-1 rounded-md border text-xs font-medium ${styles[type]}`}>
-      {icons[type]}
-      {children}
+    <span className={cn(
+      "relative inline-flex items-center px-3.5 py-1.5 rounded-full border text-xs font-semibold overflow-hidden transition-all backdrop-blur-md",
+      styles[type]
+    )}>
+      {/* Subtle micro-grain overlay */}
+      <div 
+        className="absolute inset-0 pointer-events-none opacity-[0.16] mix-blend-overlay"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+          backgroundRepeat: "repeat",
+        }}
+      />
+      <span className="relative z-10 flex items-center gap-1">
+        {icons[type]}
+        <span className="text-white/95 font-medium">{children}</span>
+        <span className="text-[10px] font-mono font-bold opacity-80 ml-1">({labels[type]})</span>
+      </span>
     </span>
   );
 }

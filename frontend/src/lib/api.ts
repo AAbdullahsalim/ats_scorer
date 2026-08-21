@@ -1,9 +1,12 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 export async function analyzeCandidates(
   jdFile: File,
   cvFiles: File[],
-  targetYoe: number = 0
+  targetYoe: number = 0,
+  mustHaveSkills: string = "",
+  niceToHaveSkills: string = "",
+  signal?: AbortSignal
 ) {
   const formData = new FormData();
   formData.append("jd_file", jdFile);
@@ -13,8 +16,27 @@ export async function analyzeCandidates(
   });
   
   formData.append("target_yoe", targetYoe.toString());
+  if (mustHaveSkills) formData.append("must_have_skills", mustHaveSkills);
+  if (niceToHaveSkills) formData.append("nice_to_have_skills", niceToHaveSkills);
 
   const response = await fetch(`${API_URL}/analyze`, {
+    method: "POST",
+    body: formData,
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+export async function parseJd(jdFile: File) {
+  const formData = new FormData();
+  formData.append("file", jdFile);
+
+  const response = await fetch(`${API_URL}/parse-jd`, {
     method: "POST",
     body: formData,
   });

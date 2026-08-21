@@ -43,28 +43,41 @@ export default function CountUp({
 
   const isInView = useInView(ref, { once: true, margin: "0px" });
 
+  const formatNumber = (num: number) => {
+    return Intl.NumberFormat("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })
+      .format(Number(num.toFixed(decimals)))
+      .replace(/,/g, separator);
+  };
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.textContent = formatNumber(direction === "down" ? to : from);
+    }
+  }, []);
+
   useEffect(() => {
     if (isInView) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         motionValue.set(direction === "down" ? from : to);
+        if (ref.current) {
+          ref.current.textContent = formatNumber(direction === "down" ? from : to);
+        }
       }, delay * 1000);
+      return () => clearTimeout(timer);
     }
   }, [motionValue, isInView, delay, to, from, direction]);
 
   useEffect(() => {
-    springValue.on("change", (latest) => {
+    const unsubscribe = springValue.on("change", (latest) => {
       if (ref.current) {
-        const formattedNumber = Intl.NumberFormat("en-US", {
-          minimumFractionDigits: decimals,
-          maximumFractionDigits: decimals,
-        })
-          .format(Number(latest.toFixed(decimals)))
-          .replace(/,/g, separator);
-
-        ref.current.textContent = formattedNumber;
+        ref.current.textContent = formatNumber(latest);
       }
     });
+    return () => unsubscribe();
   }, [springValue, decimals, separator]);
 
-  return <span className={className} ref={ref} />;
+  return <span className={className} ref={ref}>{formatNumber(to)}</span>;
 }

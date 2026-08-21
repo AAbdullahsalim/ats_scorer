@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 interface BorderGlowProps {
   children: React.ReactNode;
   className?: string;
+  contentClassName?: string;
   edgeSensitivity?: number;
   glowColor?: string;
   backgroundColor?: string;
@@ -20,6 +21,7 @@ interface BorderGlowProps {
 export default function BorderGlow({
   children,
   className,
+  contentClassName,
   edgeSensitivity = 30,
   glowColor = "40 80 80",
   backgroundColor = "#120F17",
@@ -88,7 +90,7 @@ export default function BorderGlow({
       
       {/* Content Container */}
       <div
-        className="relative z-10 w-full h-full overflow-hidden"
+        className={cn("relative z-10 w-full h-full overflow-hidden", contentClassName)}
         style={{
           backgroundColor,
           borderRadius: borderRadius,

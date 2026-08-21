@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { NoiseTexture } from "@/registry/magicui/noise-texture";
+import { cn } from "@/lib/utils";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,7 +26,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>{children}</body>
+      <body className="min-h-full flex flex-col relative" suppressHydrationWarning>
+        <NoiseTexture
+          className={cn(
+            "fixed inset-0 z-[-1]",
+            "mask-[radial-gradient(100vh_circle_at_center,white,transparent)]"
+          )}
+        />
+        <div className="relative z-10 h-full w-full">
+          {children}
+        </div>
+      </body>
     </html>
   );
 }

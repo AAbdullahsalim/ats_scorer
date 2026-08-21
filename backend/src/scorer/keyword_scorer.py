@@ -18,12 +18,13 @@ def compute_bm25_scores(
 ) -> list[float]:
     """
     Compute normalized BM25 scores for a query against a corpus.
-    Returns scores in [0.0, 1.0] range.
+    Normalized against ideal query self-score so scores reflect absolute keyword relevance
+    rather than relative batch scaling.
     """
     tokenized_corpus = [_tokenize(t) for t in corpus_texts]
     tokenized_query = _tokenize(query_text)
 
-    if not tokenized_query:
+    if not tokenized_query or not corpus_texts:
         return [0.0] * len(corpus_texts)
 
     # Ensure no empty documents (BM25 can crash on empty)
@@ -31,12 +32,17 @@ def compute_bm25_scores(
         if not doc:
             tokenized_corpus[i] = ["empty"]
 
-    bm25 = BM25Okapi(tokenized_corpus)
-    scores = bm25.get_scores(tokenized_query)
+    # Prepend query itself to the corpus as the gold-standard ideal document
+    full_corpus = [tokenized_query] + tokenized_corpus
+    bm25 = BM25Okapi(full_corpus)
+    all_scores = bm25.get_scores(tokenized_query)
 
-    max_score = max(scores) if len(scores) > 0 and max(scores) > 0 else 1.0
+    # In real hiring, a top resume contains the technical terms (~25-30% of full JD vocabulary with boilerplates)
+    # Saturation threshold maps realistic full technical keyword coverage to 1.0
+    saturation_benchmark = max(0.001, float(all_scores[0])) * 0.28
+    candidate_raw_scores = all_scores[1:]
 
     return [
-        min(1.0, float(s / max_score)) if max_score > 0 else 0.0
-        for s in scores
+        max(0.0, min(1.0, float(s / saturation_benchmark)))
+        for s in candidate_raw_scores
     ]
