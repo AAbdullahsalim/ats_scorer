@@ -1,0 +1,115 @@
+"""
+LLM response parser — converts raw LLM JSON into typed Pydantic models.
+Handles malformed responses gracefully.
+"""
+
+import logging
+from typing import Optional
+
+from ..models.schemas import (
+    LLMExtraction, SkillMatch, ExperienceEntry, EducationEntry,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def parse_cv_extraction(raw: Optional[dict]) -> Optional[LLMExtraction]:
+    """
+    Parse the LLM's CV extraction response into a typed LLMExtraction.
+    Returns None if parsing fails.
+    """
+    if not raw or not isinstance(raw, dict):
+        return None
+
+    def safe_int(val, default=0):
+        try:
+            return int(float(val)) if val is not None else default
+        except (ValueError, TypeError):
+            return default
+
+    def safe_float(val, default=0.0):
+        try:
+            return float(val) if val is not None else default
+        except (ValueError, TypeError):
+            return default
+
+    try:
+        # Parse skills
+        skills = []
+        for s in raw.get("skills_found", []):
+            if isinstance(s, dict):
+                skills.append(SkillMatch(
+                    name=str(s.get("name", "")),
+                    context=str(s.get("context", "mentioned")),
+                    evidence=str(s.get("evidence", "")),
+                ))
+
+        # Parse experience entries
+        experience = []
+        for e in raw.get("experience_entries", []):
+            if isinstance(e, dict):
+                experience.append(ExperienceEntry(
+                    role=str(e.get("role", "")),
+                    company=str(e.get("company", "")),
+                    start=str(e.get("start", "")),
+                    end=str(e.get("end", "")),
+                    months=safe_int(e.get("months", 0)),
+                    key_work=str(e.get("key_work", "")),
+                ))
+
+        # Parse education
+        education = []
+        for ed in raw.get("education", []):
+            if isinstance(ed, dict):
+                education.append(EducationEntry(
+                    degree=str(ed.get("degree", "")),
+                    institution=str(ed.get("institution", "")),
+                    year=str(ed.get("year", "")),
+                ))
+
+        # Parse certifications
+        certs = [str(c) for c in raw.get("certifications", []) if c]
+
+        return LLMExtraction(
+            candidate_name=str(raw.get("candidate_name") or "Unknown"),
+            email=str(raw.get("email") or ""),
+            phone=str(raw.get("phone") or ""),
+            linkedin=str(raw.get("linkedin") or ""),
+            github=str(raw.get("github") or ""),
+            portfolio=str(raw.get("portfolio") or ""),
+            location=str(raw.get("location") or ""),
+            skills_found=skills,
+            experience_entries=experience,
+            total_yoe=safe_float(raw.get("total_yoe", 0.0)),
+            current_role=str(raw.get("current_role") or ""),
+            education=education,
+            certifications=certs,
+            candidate_summary=str(raw.get("candidate_summary") or ""),
+        )
+
+    except Exception as e:
+        logger.warning(f"Failed to parse LLM extraction: {e}")
+        return None
+
+
+def parse_jd_extraction(raw: Optional[dict]) -> Optional[dict]:
+    """
+    Parse the LLM's JD extraction response.
+    Returns a dict with must_have_skills, nice_to_have_skills, required_yoe.
+    """
+    if not raw or not isinstance(raw, dict):
+        return None
+
+    try:
+        return {
+            "must_have_skills": [
+                str(s) for s in raw.get("must_have_skills", []) if s
+            ],
+            "nice_to_have_skills": [
+                str(s) for s in raw.get("nice_to_have_skills", []) if s
+            ],
+            "required_yoe": float(raw.get("required_yoe", 1.0)),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to parse JD extraction: {e}")
+        return None

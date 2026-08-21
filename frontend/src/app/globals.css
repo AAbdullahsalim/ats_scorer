@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@theme {
+  /* Golden Ratio / Fibonacci spacing scale */
+  --spacing-1: 1px;
+  --spacing-2: 2px;
+  --spacing-3: 3px;
+  --spacing-5: 5px;
+  --spacing-8: 8px;
+  --spacing-13: 13px;
+  --spacing-21: 21px;
+  --spacing-34: 34px;
+  --spacing-55: 55px;
+  --spacing-89: 89px;
+  --spacing-144: 144px;
+
+  /* Minimalist Color Palette */
+  --color-background: #FAFAF9; /* Warm Alabaster */
+  --color-foreground: #1C1917; /* Deep Slate */
+  
+  --color-primary: #C5A059; /* Muted Gold */
+  --color-primary-foreground: #FFFFFF;
+  
+  --color-secondary: #E7E5E4;
+  --color-secondary-foreground: #1C1917;
+
+  --color-muted: #F5F5F4;
+  --color-muted-foreground: #78716C;
+
+  --color-success: #274C3B; /* Deep Forest Green */
+  --color-success-foreground: #FFFFFF;
+  
+  --color-error: #7F1D1D;
+  --color-error-foreground: #FEF2F2;
+  
+  --color-border: #E7E5E4;
+  
+  --radius-sm: 8px;
+  --radius-md: 13px;
+  --radius-lg: 21px;
+  --radius-xl: 34px;
+}
+
+/* Custom CSS properties for our theme */
+@layer base {
+  :root {
+    --background: var(--color-background);
+    --foreground: var(--color-foreground);
+  }
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: Arial, Helvetica, sans-serif;
+    /* Subtle dot grid for premium feel */
+    background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+    background-size: var(--spacing-34) var(--spacing-34);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+/* Base golden ratio typographic scaling */
+h1 { font-size: 2.618rem; font-weight: 700; tracking: tight; }
+h2 { font-size: 1.618rem; font-weight: 600; tracking: tight; }
+h3 { font-size: 1rem; font-weight: 500; }
+p { font-size: 1rem; line-height: 1.618; }
+
+/* Utilities for requested CSS features */
+.perspective-container {
+  perspective: 1000px;
+}
+
+.golden-ratio-split {
+  display: grid;
+  grid-template-columns: 38.2% 61.8%;
+  gap: var(--spacing-34);
+}
+
+@media (max-width: 1024px) {
+  .golden-ratio-split {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,1 @@
+John Doe. Software Engineer. j@email.com. 5 years experience. Skills: Python, React.
