@@ -9,6 +9,7 @@ from typing import Optional
 from ..models.schemas import (
     LLMExtraction, SkillMatch, ExperienceEntry, EducationEntry,
 )
+from ..utils.university_normalizer import normalize_university
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +62,12 @@ def parse_cv_extraction(raw: Optional[dict]) -> Optional[LLMExtraction]:
         education = []
         for ed in raw.get("education", []):
             if isinstance(ed, dict):
+                inst_name = str(ed.get("institution", ""))
                 education.append(EducationEntry(
                     degree=str(ed.get("degree", "")),
-                    institution=str(ed.get("institution", "")),
+                    institution=inst_name,
                     year=str(ed.get("year", "")),
+                    normalized_institution=normalize_university(inst_name)
                 ))
 
         # Parse certifications

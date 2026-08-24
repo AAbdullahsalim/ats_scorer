@@ -31,6 +31,7 @@ class EducationEntry(BaseModel):
     degree: str = ""
     institution: str = ""
     year: str = ""
+    normalized_institution: str = ""
 
 
 class ContactInfo(BaseModel):
@@ -121,6 +122,7 @@ class CandidateResult(BaseModel):
     skills_detail: list[SkillMatch] = Field(default_factory=list)
     experience_entries: list[ExperienceEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
+    normalized_universities: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     candidate_summary: str = ""
     sections: ParsedSections = Field(default_factory=ParsedSections)

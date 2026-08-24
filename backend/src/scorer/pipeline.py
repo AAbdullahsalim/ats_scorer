@@ -253,6 +253,13 @@ class ScoringPipeline:
                 ]
                 certifications = llm.certifications
                 candidate_summary = llm.candidate_summary
+                
+                # Extract unique normalized universities
+                normalized_universities = list({
+                    e.normalized_institution for e in education_entries 
+                    if e.normalized_institution
+                })
+
 
             result = CandidateResult(
                 file_name=c.file_name,
@@ -270,6 +277,7 @@ class ScoringPipeline:
                 skills_detail=skills_detail,
                 experience_entries=experience_entries,
                 education=education_entries,
+                normalized_universities=normalized_universities if 'normalized_universities' in locals() else [],
                 certifications=certifications,
                 candidate_summary=candidate_summary,
                 sections=c.sections,

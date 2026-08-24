@@ -18,6 +18,7 @@ import BorderGlow from "@/components/BorderGlow";
 import CountUp from "@/components/CountUp";
 import { NoiseTexture } from "@/registry/magicui/noise-texture";
 import CosmicDust from "@/components/lightswind/cosmic-dust";
+import UniversityFilter from "@/components/UniversityFilter";
 
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -28,6 +29,7 @@ export default function Home() {
   const [showCV, setShowCV] = useState(false);
   const [yoe, setYoe] = useState(0);
   const [strictMode, setStrictMode] = useState(false);
+  const [selectedUniversities, setSelectedUniversities] = useState<string[]>([]);
 
   // Derive filtered candidates reactively based on Min YOE and Strict Mode
   const filteredCandidates = useMemo(() => {
@@ -44,9 +46,16 @@ export default function Home() {
         if (hasMissing) return false;
       }
 
+      // 3. University filtering
+      if (selectedUniversities.length > 0) {
+        const candidateUnis = c.normalized_universities || [];
+        const hasSelectedUni = candidateUnis.some((uni: string) => selectedUniversities.includes(uni));
+        if (!hasSelectedUni) return false;
+      }
+
       return true;
     });
-  }, [allCandidates, yoe, strictMode]);
+  }, [allCandidates, yoe, strictMode, selectedUniversities]);
 
   // Trigger smooth skeleton loading animation whenever Min YOE or Strict Mode changes
   useEffect(() => {
@@ -57,7 +66,7 @@ export default function Home() {
       }, 400);
       return () => clearTimeout(timer);
     }
-  }, [yoe, strictMode]);
+  }, [yoe, strictMode, selectedUniversities]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [jdAnalysis, setJdAnalysis] = useState<any>(null);
   const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
@@ -650,6 +659,14 @@ export default function Home() {
                 )}
               />
             </button>
+          </div>
+
+          {/* University Filter */}
+          <div className="flex items-center">
+            <UniversityFilter 
+              selectedUniversities={selectedUniversities}
+              onChange={setSelectedUniversities}
+            />
           </div>
         </div>
 
