@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { InteractiveHoverButton } from "@/registry/magicui/interactive-hover-button";
 import { AnimatedCircularProgressBar } from "@/registry/magicui/animated-circular-progress-bar";
 import AIOrbFace from "@/components/AIOrbFace";
@@ -8,9 +8,9 @@ import CircularGallery from "@/components/CircularGallery";
 import GamerProfileModal from "@/components/GamerProfileModal";
 import CVPreviewModal from "@/components/CVPreviewModal";
 import { MagneticButton } from "@/registry/magicui/magnetic-button";
-import { analyzeCandidates, parseJd } from "@/lib/api";
-import { X, Plus, User, Trash2 } from "lucide-react";
-import { motion } from "framer-motion";
+import { analyzeCandidates, parseJd, exportReport } from "@/lib/api";
+import { X, Plus, User, Trash2, Download, FileSpreadsheet, ChevronDown, FileText, FileCheck, RefreshCw } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import GlassIcons from "@/components/GlassIcons";
 import SpecularButton from "@/components/SpecularButton";
@@ -22,11 +22,42 @@ import CosmicDust from "@/components/lightswind/cosmic-dust";
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [candidates, setCandidates] = useState<any[]>([]);
+  const [allCandidates, setAllCandidates] = useState<any[]>([]);
+  const [isFilterLoading, setIsFilterLoading] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
   const [showCV, setShowCV] = useState(false);
   const [yoe, setYoe] = useState(0);
   const [strictMode, setStrictMode] = useState(false);
+
+  // Derive filtered candidates reactively based on Min YOE and Strict Mode
+  const filteredCandidates = useMemo(() => {
+    if (!allCandidates || allCandidates.length === 0) return [];
+
+    return allCandidates.filter((c: any) => {
+      // 1. Min YOE filtering: candidate_yoe must be >= yoe
+      const meetsYoe = (c.candidate_yoe || 0) >= yoe;
+      if (!meetsYoe) return false;
+
+      // 2. Strict mode filtering: candidate must have 0 missing required skills
+      if (strictMode) {
+        const hasMissing = c.missing_skills && c.missing_skills.length > 0;
+        if (hasMissing) return false;
+      }
+
+      return true;
+    });
+  }, [allCandidates, yoe, strictMode]);
+
+  // Trigger smooth skeleton loading animation whenever Min YOE or Strict Mode changes
+  useEffect(() => {
+    if (allCandidates.length > 0) {
+      setIsFilterLoading(true);
+      const timer = setTimeout(() => {
+        setIsFilterLoading(false);
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [yoe, strictMode]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [jdAnalysis, setJdAnalysis] = useState<any>(null);
   const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
@@ -54,6 +85,57 @@ export default function Home() {
   const cvInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [showJdDropdown, setShowJdDropdown] = useState(false);
+  const [showCvDropdown, setShowCvDropdown] = useState(false);
+  const jdDropdownRef = useRef<HTMLDivElement>(null);
+  const cvDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (jdDropdownRef.current && !jdDropdownRef.current.contains(e.target as Node)) {
+        setShowJdDropdown(false);
+      }
+      if (cvDropdownRef.current && !cvDropdownRef.current.contains(e.target as Node)) {
+        setShowCvDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  };
+
+  const handleAddCvFiles = (newFiles: FileList | File[]) => {
+    const fileArray = Array.from(newFiles);
+    setCvFiles(prev => {
+      const existing = new Set(prev.map(f => `${f.name}_${f.size}`));
+      const unique = fileArray.filter(f => !existing.has(`${f.name}_${f.size}`));
+      return [...prev, ...unique];
+    });
+  };
+
+  const handleRemoveCvFile = (indexToRemove: number) => {
+    setCvFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleClearAllCvs = () => {
+    setCvFiles([]);
+    setShowCvDropdown(false);
+  };
+
+  const handleRemoveJdFile = () => {
+    setJdFile(null);
+    setJdAnalysis(null);
+    setSkills([]);
+    setShowJdDropdown(false);
+  };
 
   useEffect(() => {
     if (errorMsg) {
@@ -179,12 +261,7 @@ export default function Home() {
         controller.signal
       );
 
-      let processedCandidates = results.candidates || [];
-      if (strictMode) {
-        processedCandidates = processedCandidates.filter(
-          (c: any) => c.candidate_yoe >= yoe && (!c.missing_skills || c.missing_skills.length === 0)
-        );
-      }
+      const rawResults = results.candidates || [];
 
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
@@ -192,22 +269,18 @@ export default function Home() {
       }
       setProgress(100);
 
-      if (processedCandidates.length === 0 && strictMode && (results.candidates?.length > 0)) {
-        setErrorMsg("Strict mode filtered out all candidates (missing skills or below minimum YOE).");
-      }
-
-      // Update state with actual backend results
-      setCandidates(processedCandidates);
+      // Store all candidates from backend run
+      setAllCandidates(rawResults);
       setJdAnalysis(results.jd_analysis || null);
 
-      // Create object URLs for actual document preview
+      // Create object URLs for document preview
       const urls: Record<string, string> = {};
       cvFiles.forEach(file => {
         urls[file.name] = URL.createObjectURL(file);
       });
       setFileUrls(urls);
 
-      // Stop processing state after a short delay to show 100%
+      // Stop processing state after a short delay
       setTimeout(() => {
         setIsProcessing(false);
       }, 1000);
@@ -228,6 +301,39 @@ export default function Home() {
       setProgress(0);
     } finally {
       abortControllerRef.current = null;
+    }
+  };
+
+  const handleDownloadCSV = async () => {
+    if (!filteredCandidates || filteredCandidates.length === 0) return;
+
+    try {
+      await exportReport(filteredCandidates);
+    } catch (err) {
+      console.warn("Backend Excel export failed, generating local CSV report:", err);
+      const headers = ["Rank", "Candidate Name", "Current Role", "Match Score (%)", "YOE", "Contact Email", "Contact Phone", "Matched Skills", "Missing Skills"];
+      const rows = filteredCandidates.map((c, idx) => [
+        idx + 1,
+        `"${(c.candidate_name || c.contact?.name || "Candidate").replace(/"/g, '""')}"`,
+        `"${(c.current_role || "N/A").replace(/"/g, '""')}"`,
+        c.final_score_pct || 0,
+        c.candidate_yoe || 0,
+        `"${(c.contact?.email || "N/A").replace(/"/g, '""')}"`,
+        `"${(c.contact?.phone || "N/A").replace(/"/g, '""')}"`,
+        `"${(c.matched_skills || []).join(", ").replace(/"/g, '""')}"`,
+        `"${(c.missing_skills || []).join(", ").replace(/"/g, '""')}"`,
+      ]);
+
+      const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ats_candidates_report_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      a.remove();
     }
   };
 
@@ -265,7 +371,8 @@ export default function Home() {
             </h1>
           </div>
 
-          <div className="flex gap-4 mt-8 lg:mt-0">
+          <div className="flex gap-4 mt-8 lg:mt-0 items-center">
+            {/* Hidden File Inputs */}
             <input
               type="file"
               ref={jdInputRef}
@@ -284,22 +391,208 @@ export default function Home() {
               multiple
               accept=".pdf,.docx,.txt"
               onChange={(e) => {
-                if (e.target.files) {
-                  setCvFiles(Array.from(e.target.files));
+                if (e.target.files && e.target.files.length > 0) {
+                  handleAddCvFiles(e.target.files);
                 }
               }}
             />
-            <InteractiveHoverButton
-              text={isParsingJd ? "Parsing JD..." : jdFile ? "JD Selected ✓" : "Upload JD"}
-              loaderColor="amber"
-              onClick={() => jdInputRef.current?.click()}
-              disabled={isParsingJd}
-            />
-            <InteractiveHoverButton
-              text={cvFiles.length > 0 ? `${cvFiles.length} CVs ✓` : "Upload CVs"}
-              loaderColor="green"
-              onClick={() => cvInputRef.current?.click()}
-            />
+
+            {/* JD Button & Dropdown */}
+            <div className="relative" ref={jdDropdownRef}>
+              <div className="flex items-center bg-black/40 rounded-full border border-white/10 p-0.5 backdrop-blur-md transition-all hover:border-amber-500/40 shadow-inner">
+                <InteractiveHoverButton
+                  text={isParsingJd ? "Parsing..." : jdFile ? "JD Loaded ✓" : "Upload JD"}
+                  loaderColor="amber"
+                  className="!border-0 !bg-transparent"
+                  onClick={() => {
+                    if (!jdFile) {
+                      jdInputRef.current?.click();
+                    } else {
+                      setShowJdDropdown(!showJdDropdown);
+                    }
+                  }}
+                  disabled={isParsingJd}
+                />
+                {jdFile && (
+                  <button
+                    onClick={() => setShowJdDropdown(!showJdDropdown)}
+                    className="pr-3 pl-0.5 py-1.5 text-muted-foreground hover:text-amber-400 transition-all active:scale-95 flex items-center justify-center cursor-pointer"
+                    title="JD Options & Controls"
+                  >
+                    <ChevronDown size={14} className={cn("transition-transform duration-200", showJdDropdown && "rotate-180")} />
+                  </button>
+                )}
+              </div>
+
+              {/* JD Dropdown Menu */}
+              <AnimatePresence>
+                {showJdDropdown && jdFile && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute right-0 mt-3 w-72 p-4 rounded-2xl bg-black/90 border border-amber-500/30 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <FileCheck size={14} /> Active Job Description
+                      </span>
+                      <button
+                        onClick={() => setShowJdDropdown(false)}
+                        className="text-muted-foreground hover:text-foreground p-1 rounded-md"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3 bg-white/[0.04] p-3 rounded-xl border border-white/5">
+                      <FileText size={20} className="text-amber-400 shrink-0" />
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-xs font-bold text-foreground truncate" title={jdFile.name}>
+                          {jdFile.name}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {formatFileSize(jdFile.size)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 mt-1">
+                      <SpecularButton
+                        size="sm"
+                        baseColor="#141008"
+                        lineColor="#f59e0b"
+                        textColor="#fbbf24"
+                        onClick={() => {
+                          setShowJdDropdown(false);
+                          jdInputRef.current?.click();
+                        }}
+                        className="flex-1 !py-1.5 !px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw size={12} /> Replace JD
+                      </SpecularButton>
+
+                      <button
+                        onClick={handleRemoveJdFile}
+                        className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-95 flex items-center justify-center cursor-pointer"
+                        title="Remove JD"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* CVs Button & Dropdown */}
+            <div className="relative" ref={cvDropdownRef}>
+              <div className="flex items-center bg-black/40 rounded-full border border-white/10 p-0.5 backdrop-blur-md transition-all hover:border-emerald-500/40 shadow-inner">
+                <InteractiveHoverButton
+                  text={cvFiles.length > 0 ? `${cvFiles.length} CVs ✓` : "Upload CVs"}
+                  loaderColor="green"
+                  className="!border-0 !bg-transparent"
+                  onClick={() => {
+                    if (cvFiles.length === 0) {
+                      cvInputRef.current?.click();
+                    } else {
+                      setShowCvDropdown(!showCvDropdown);
+                    }
+                  }}
+                />
+                {cvFiles.length > 0 && (
+                  <button
+                    onClick={() => setShowCvDropdown(!showCvDropdown)}
+                    className="pr-3 pl-0.5 py-1.5 text-muted-foreground hover:text-emerald-400 transition-all active:scale-95 flex items-center justify-center cursor-pointer"
+                    title="CV Batch Controls"
+                  >
+                    <ChevronDown size={14} className={cn("transition-transform duration-200", showCvDropdown && "rotate-180")} />
+                  </button>
+                )}
+              </div>
+
+              {/* CVs Dropdown Menu */}
+              <AnimatePresence>
+                {showCvDropdown && cvFiles.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute right-0 mt-3 w-80 p-4 rounded-2xl bg-black/90 border border-emerald-500/30 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                          CV Batch ({cvFiles.length})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleClearAllCvs}
+                          className="text-[10px] text-red-400 hover:text-red-300 font-mono uppercase px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 active:scale-95 transition-all"
+                        >
+                          Clear All
+                        </button>
+                        <button
+                          onClick={() => setShowCvDropdown(false)}
+                          className="text-muted-foreground hover:text-foreground p-1 rounded-md"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scrollable File List */}
+                    <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                      {cvFiles.map((file, idx) => (
+                        <div
+                          key={`${file.name}_${file.size}_${idx}`}
+                          className="flex items-center justify-between gap-2 bg-white/[0.03] p-2.5 rounded-xl border border-white/5 hover:border-emerald-500/30 hover:bg-white/[0.06] transition-all group"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <span className="text-[10px] font-mono text-muted-foreground w-4">#{idx + 1}</span>
+                            <FileText size={16} className="text-emerald-400 shrink-0" />
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <span className="text-xs font-semibold text-foreground truncate" title={file.name}>
+                                {file.name}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                {formatFileSize(file.size)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleRemoveCvFile(idx)}
+                            className="opacity-70 group-hover:opacity-100 p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-95 cursor-pointer"
+                            title="Remove CV"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add More CVs Button */}
+                    <SpecularButton
+                      size="sm"
+                      baseColor="#081412"
+                      lineColor="#5e8d77"
+                      textColor="#5e8d77"
+                      onClick={() => {
+                        setShowCvDropdown(false);
+                        cvInputRef.current?.click();
+                      }}
+                      className="w-full !py-2 font-mono text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 mt-1 border border-emerald-500/30 hover:border-emerald-500 cursor-pointer"
+                    >
+                      <Plus size={14} /> ADD MORE CVS
+                    </SpecularButton>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
 
@@ -532,21 +825,46 @@ export default function Home() {
           {/* Right Column (Outputs & Results) - 61.8% */}
           <div className="flex flex-col flex-grow w-full lg:w-[61.8%] min-h-[500px]">
 
-            {candidates.length > 0 ? (
+            {allCandidates.length > 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
                 className="w-full flex flex-col gap-8"
               >
-                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                  Analysis Complete
-                  <span className="text-xs bg-accent/20 text-accent px-3 py-1 rounded-full border border-accent/30 font-mono">
-                    {candidates.length} Found
-                  </span>
-                </h2>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-2">
+                  <div>
+                    <h2 className="text-2xl font-bold flex items-center gap-3">
+                      Analysis Results
+                      <span className="text-xs bg-accent/20 text-accent px-3 py-1 rounded-full border border-accent/30 font-mono">
+                        {filteredCandidates.length} {filteredCandidates.length === 1 ? "Candidate" : "Candidates"} Qualified
+                      </span>
+                    </h2>
+                    {allCandidates.length !== filteredCandidates.length && (
+                      <p className="text-xs font-mono text-muted-foreground mt-1">
+                        Filtered out {allCandidates.length - filteredCandidates.length} candidates below {yoe} YOE{strictMode ? " or missing skills" : ""}.
+                      </p>
+                    )}
+                  </div>
 
-                {/* Detailed Results Table */}
+                  <SpecularButton
+                    onClick={handleDownloadCSV}
+                    disabled={filteredCandidates.length === 0}
+                    baseColor="#0b1716"
+                    lineColor="#5e8d77"
+                    textColor="#5e8d77"
+                    tint="#5e8d77"
+                    tintOpacity={0.25}
+                    radius={9999}
+                    size="sm"
+                    className="!px-5 !py-2.5 text-xs font-mono font-bold tracking-wider border border-[#5e8d77]/40 hover:border-[#5e8d77] hover:shadow-[0_0_20px_rgba(94,141,119,0.35)] active:scale-95 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-40"
+                  >
+                    <FileSpreadsheet size={15} className="text-accent" />
+                    <span>EXPORT CSV REPORT</span>
+                  </SpecularButton>
+                </div>
+
+                {/* Detailed Results Table or Loading Skeleton */}
                 <div className="overflow-x-auto rounded-3xl bg-secondary/10 border border-border shadow-xl backdrop-blur-sm">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -560,63 +878,136 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {candidates.map((cand: any, idx: number) => {
-                        const isLowScore = cand.final_score_pct < 20;
-                        return (
-                          <tr key={idx} className="hover:bg-white/5 transition-colors group">
-                            <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">#{idx + 1}</td>
-                            <td className="p-4">
-                              <div className="font-bold text-foreground text-sm truncate max-w-[200px]" title={cand.candidate_name}>{cand.candidate_name || "Unknown"}</div>
-                              <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={cand.current_role}>{cand.current_role || "Candidate"}</div>
+                      {isFilterLoading ? (
+                        /* Skeleton Loading Rows */
+                        Array.from({ length: Math.min(allCandidates.length, 5) }).map((_, sIdx) => (
+                          <tr key={`skel_${sIdx}`} className="animate-pulse bg-white/[0.01]">
+                            <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">
+                              <div className="h-4 w-6 bg-white/10 rounded-full"></div>
                             </td>
                             <td className="p-4">
-                              <span className={`px-2 py-1 text-xs font-bold rounded-full border ${isLowScore ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-accent/20 text-accent border-accent/30'}`}>
-                                {cand.final_score_pct?.toFixed(1)}%
-                              </span>
+                              <div className="h-4 w-32 bg-white/10 rounded-lg mb-1.5"></div>
+                              <div className="h-3 w-20 bg-white/5 rounded-lg"></div>
                             </td>
-                            <td className="p-4 text-sm font-mono text-muted-foreground">{cand.candidate_yoe}</td>
                             <td className="p-4">
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="text-accent bg-accent/10 px-3 py-1 rounded-full border border-accent/20" title={cand.contextual_skills?.join(", ")}>
-                                  {cand.contextual_skills?.length || 0} Found
-                                </span>
-                                <span className="text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20" title={cand.missing_skills?.join(", ")}>
-                                  {cand.missing_skills?.length || 0} Missing
-                                </span>
+                              <div className="h-6 w-14 bg-emerald-500/15 border border-emerald-500/20 rounded-full"></div>
+                            </td>
+                            <td className="p-4">
+                              <div className="h-4 w-8 bg-white/10 rounded-full"></div>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                <div className="h-6 w-20 bg-accent/15 rounded-full"></div>
+                                <div className="h-6 w-20 bg-red-500/15 rounded-full"></div>
                               </div>
                             </td>
                             <td className="p-4 pr-6 text-right flex justify-end">
-                              <GlassIcons
-                                colorful={true}
-                                items={[
-                                  {
-                                    icon: <User size={18} strokeWidth={2.5} />,
-                                    color: 'indigo',
-                                    label: 'View Profile',
-                                    onClick: () => setSelectedCandidate(cand)
-                                  }
-                                ]}
-                              />
+                              <div className="h-8 w-8 bg-white/10 rounded-full"></div>
                             </td>
                           </tr>
-                        );
-                      })}
+                        ))
+                      ) : filteredCandidates.length > 0 ? (
+                        /* Filtered Candidate Rows */
+                        filteredCandidates.map((cand: any, idx: number) => {
+                          const isLowScore = cand.final_score_pct < 20;
+                          return (
+                            <tr key={idx} className="hover:bg-white/5 transition-colors group">
+                              <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">#{idx + 1}</td>
+                              <td className="p-4">
+                                <div className="font-bold text-foreground text-sm truncate max-w-[200px]" title={cand.candidate_name}>{cand.candidate_name || "Unknown"}</div>
+                                <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={cand.current_role}>{cand.current_role || "Candidate"}</div>
+                              </td>
+                              <td className="p-4">
+                                <span className={`px-2 py-1 text-xs font-bold rounded-full border ${isLowScore ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-accent/20 text-accent border-accent/30'}`}>
+                                  {cand.final_score_pct?.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="p-4 text-sm font-mono text-muted-foreground">{cand.candidate_yoe}</td>
+                              <td className="p-4">
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-accent bg-accent/10 px-3 py-1 rounded-full border border-accent/20" title={cand.contextual_skills?.join(", ")}>
+                                    {cand.contextual_skills?.length || 0} Found
+                                  </span>
+                                  <span className="text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20" title={cand.missing_skills?.join(", ")}>
+                                    {cand.missing_skills?.length || 0} Missing
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="p-4 pr-6 text-right flex justify-end">
+                                <GlassIcons
+                                  colorful={true}
+                                  items={[
+                                    {
+                                      icon: <User size={18} strokeWidth={2.5} />,
+                                      color: 'indigo',
+                                      label: 'View Profile',
+                                      onClick: () => setSelectedCandidate(cand)
+                                    }
+                                  ]}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        /* Empty Filter Result State */
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center bg-black/20">
+                            <div className="flex flex-col items-center justify-center gap-2">
+                              <p className="text-sm font-bold text-amber-400 font-mono">No Candidates Qualified for Active Criteria</p>
+                              <p className="text-xs text-muted-foreground font-mono max-w-md">
+                                Filter criteria requires <span className="text-accent font-bold">&ge; {yoe} YOE</span>
+                                {strictMode ? " and 100% must-have skill match." : "."}
+                              </p>
+                              <button
+                                onClick={() => { setYoe(0); setStrictMode(false); }}
+                                className="mt-2 text-xs text-accent hover:underline font-mono font-bold cursor-pointer"
+                              >
+                                Reset Filters to Show All ({allCandidates.length}) Candidates
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
 
+                {/* Visual Gallery with Loading Skeleton */}
                 <div className="mt-4">
                   <h3 className="text-xl font-bold mb-6 text-foreground flex items-center gap-3">
                     <span className="w-2 h-8 bg-accent rounded-full"></span>
                     Visual Candidate Gallery
                   </h3>
-                  <CircularGallery
-                    items={candidates}
-                    onItemClick={(item) => {
-                      setSelectedCandidate(item);
-                      setShowCV(true);
-                    }}
-                  />
+                  {isFilterLoading ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {[1, 2, 3].map((n) => (
+                        <div key={n} className="h-40 rounded-3xl bg-black/40 border border-white/10 p-5 flex flex-col justify-between animate-pulse">
+                          <div className="flex justify-between items-center">
+                            <div className="h-4 w-28 bg-white/10 rounded-md"></div>
+                            <div className="h-5 w-12 bg-accent/20 rounded-full"></div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="h-3 w-36 bg-white/5 rounded-md"></div>
+                            <div className="h-3 w-24 bg-white/5 rounded-md"></div>
+                          </div>
+                          <div className="h-8 w-full bg-white/10 rounded-xl"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : filteredCandidates.length > 0 ? (
+                    <CircularGallery
+                      items={filteredCandidates}
+                      onItemClick={(item) => {
+                        setSelectedCandidate(item);
+                        setShowCV(true);
+                      }}
+                    />
+                  ) : (
+                    <div className="p-6 text-center text-xs font-mono text-muted-foreground bg-black/20 rounded-2xl border border-white/5">
+                      No gallery cards available under current filters.
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ) : (
@@ -635,7 +1026,7 @@ export default function Home() {
               setSelectedCandidate(null);
               setShowCV(false);
             }}
-            rank={candidates.indexOf(selectedCandidate) + 1}
+            rank={allCandidates.indexOf(selectedCandidate) + 1}
           />
         )}
 

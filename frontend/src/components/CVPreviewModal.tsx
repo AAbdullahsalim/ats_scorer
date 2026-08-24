@@ -179,17 +179,20 @@ export default function CVPreviewModal({
               </div>
             ) : viewMode === "document" && isDocx ? (
               /* Formatted In-App Document Paper for Word .docx files */
-              <div className="w-full h-full overflow-y-auto p-4 md:p-8 bg-black/40 flex justify-center">
-                <div className="w-full max-w-3xl bg-white text-gray-900 rounded-xl shadow-2xl p-8 md:p-12 min-h-full font-serif leading-relaxed border border-gray-200">
-                  <div className="border-b-2 border-gray-900 pb-4 mb-6">
-                    <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              <div className="w-full h-full overflow-y-auto p-4 md:p-8 bg-black/60 flex justify-center items-start">
+                <div className="w-full max-w-4xl bg-[#0f1719] text-gray-100 rounded-2xl shadow-2xl p-8 md:p-12 border border-white/10 my-4 flex flex-col gap-6 font-sans">
+                  <div className="border-b border-white/10 pb-6 mb-2">
+                    <h1 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
                       {candidate.candidate_name || "Candidate Resume"}
+                      <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
+                        DOCX Preview
+                      </span>
                     </h1>
-                    <p className="text-sm font-sans font-semibold text-gray-600 uppercase tracking-wider mt-1">
+                    <p className="text-sm font-semibold text-accent uppercase tracking-wider mt-1.5">
                       {candidate.current_role || "Professional Candidate"}
                     </p>
                     {candidate.contact && (
-                      <div className="flex flex-wrap gap-4 text-xs font-sans text-gray-500 mt-2">
+                      <div className="flex flex-wrap gap-4 text-xs font-mono text-gray-400 mt-3 bg-black/40 p-3 rounded-xl border border-white/5">
                         {candidate.contact.email && <span>✉ {candidate.contact.email}</span>}
                         {candidate.contact.phone && <span>☎ {candidate.contact.phone}</span>}
                         {candidate.contact.location && <span>📍 {candidate.contact.location}</span>}
@@ -197,7 +200,7 @@ export default function CVPreviewModal({
                     )}
                   </div>
 
-                  <div className="text-sm font-sans text-gray-800 whitespace-pre-wrap leading-relaxed space-y-4">
+                  <div className="text-sm text-gray-300 font-mono whitespace-pre-wrap leading-relaxed select-text space-y-4">
                     {candidate.full_text || "No extracted text available for this Word document."}
                   </div>
                 </div>

@@ -33,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             "mask-[radial-gradient(100vh_circle_at_center,white,transparent)]"
           )}
         />
-        <div className="relative z-10 h-full w-full">
+        <div className="relative z-10 h-full w-full" suppressHydrationWarning>
           {children}
         </div>
       </body>
