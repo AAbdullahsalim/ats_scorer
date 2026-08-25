@@ -408,7 +408,7 @@ export default function Home() {
 
             {/* JD Button & Dropdown */}
             <div className="relative" ref={jdDropdownRef}>
-              <div className="flex items-center bg-black/40 rounded-full border border-white/10 p-0.5 backdrop-blur-md transition-all hover:border-amber-500/40 shadow-inner">
+              <div className="flex items-center bg-white/[0.03] rounded-full border border-white/10 p-1 backdrop-blur-sm transition-all hover:bg-white/[0.05] hover:border-amber-500/40 shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
                 <InteractiveHoverButton
                   text={isParsingJd ? "Parsing..." : jdFile ? "JD Loaded ✓" : "Upload JD"}
                   loaderColor="amber"
@@ -497,7 +497,7 @@ export default function Home() {
 
             {/* CVs Button & Dropdown */}
             <div className="relative" ref={cvDropdownRef}>
-              <div className="flex items-center bg-black/40 rounded-full border border-white/10 p-0.5 backdrop-blur-md transition-all hover:border-emerald-500/40 shadow-inner">
+              <div className="flex items-center bg-white/[0.03] rounded-full border border-white/10 p-1 backdrop-blur-sm transition-all hover:bg-white/[0.05] hover:border-emerald-500/40 shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
                 <InteractiveHoverButton
                   text={cvFiles.length > 0 ? `${cvFiles.length} CVs ✓` : "Upload CVs"}
                   loaderColor="green"

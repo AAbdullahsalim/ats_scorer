@@ -231,6 +231,7 @@ class ScoringPipeline:
             certifications = []
             candidate_summary = ""
             candidate_name = contact.name
+            normalized_universities = []
 
             if llm:
                 candidate_name = llm.candidate_name or contact.name
@@ -277,7 +278,7 @@ class ScoringPipeline:
                 skills_detail=skills_detail,
                 experience_entries=experience_entries,
                 education=education_entries,
-                normalized_universities=normalized_universities if 'normalized_universities' in locals() else [],
+                normalized_universities=normalized_universities,
                 certifications=certifications,
                 candidate_summary=candidate_summary,
                 sections=c.sections,

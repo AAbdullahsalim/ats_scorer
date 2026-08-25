@@ -71,3 +71,21 @@ export async function exportReport(candidates: any[]) {
   window.URL.revokeObjectURL(url);
   a.remove();
 }
+
+export async function convertDocxToPdf(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_URL}/convert-docx`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to convert DOCX: ${response.statusText}`);
+  }
+
+  const blob = await response.blob();
+  return window.URL.createObjectURL(blob);
+}
+

@@ -14,9 +14,10 @@ sys.path.insert(0, _this_dir)
 os.environ["USE_TF"] = "0"
 os.environ["USE_TORCH"] = "1"
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from starlette.background import BackgroundTask
 from typing import Optional
 
 from config import BACKEND_PORT, CORS_ORIGINS, MAX_CVS_PER_BATCH
@@ -32,6 +33,7 @@ from src.models import (
     AnalysisResponse, JDAnalysisResponse,
     HealthResponse, CandidateResult, ParsedCandidate,
 )
+from src.utils.docx_converter import convert_docx_to_pdf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -89,6 +91,43 @@ async def health_check():
         groq_configured=llm._groq_available,
         llm_mode=llm.active_provider,
     )
+
+import tempfile
+import shutil
+@app.post("/convert-docx")
+async def api_convert_docx(file: UploadFile = File(...)):
+    """Converts a DOCX file to PDF and returns the file."""
+    if not file.filename.lower().endswith(".docx") and not file.filename.lower().endswith(".doc"):
+        raise HTTPException(status_code=400, detail="Only .docx files are supported")
+        
+    try:
+        temp_dir = tempfile.mkdtemp()
+        docx_path = os.path.join(temp_dir, file.filename)
+        
+        with open(docx_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        pdf_path = convert_docx_to_pdf(docx_path, temp_dir)
+        
+        if not pdf_path or not os.path.exists(pdf_path):
+            raise HTTPException(status_code=500, detail="Failed to convert DOCX to PDF")
+            
+        def cleanup():
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+                
+        return FileResponse(
+            path=pdf_path,
+            filename=f"{os.path.splitext(file.filename)[0]}.pdf",
+            media_type="application/pdf",
+            background=BackgroundTask(cleanup)
+        )
+    except Exception as e:
+        logger.error(f"Error in /convert-docx: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.post("/parse-jd", response_model=JDAnalysisResponse)

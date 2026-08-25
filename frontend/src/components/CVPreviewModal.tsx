@@ -6,6 +6,8 @@ import { motion } from "framer-motion";
 import BorderGlow from "@/components/BorderGlow";
 import SpecularButton from "@/components/SpecularButton";
 import { cn } from "@/lib/utils";
+import { convertDocxToPdf } from "@/lib/api";
+import GridLoader from "@/components/GridLoader";
 
 interface CVPreviewModalProps {
   candidate: any;
@@ -20,6 +22,9 @@ export default function CVPreviewModal({
 }: CVPreviewModalProps) {
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"document" | "raw">("document");
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
 
   if (!candidate) return null;
 
@@ -35,6 +40,27 @@ export default function CVPreviewModal({
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  React.useEffect(() => {
+    if (viewMode === "document" && isDocx && fileUrl && !pdfUrl && !isConverting && !convertError) {
+      const convert = async () => {
+        setIsConverting(true);
+        try {
+          const res = await fetch(fileUrl);
+          const blob = await res.blob();
+          const file = new File([blob], fileName, { type: blob.type });
+          const url = await convertDocxToPdf(file);
+          setPdfUrl(url);
+        } catch (error: any) {
+          console.error("Failed to convert DOCX to PDF", error);
+          setConvertError(error.message);
+        } finally {
+          setIsConverting(false);
+        }
+      };
+      convert();
+    }
+  }, [viewMode, isDocx, fileUrl, pdfUrl, isConverting, convertError, fileName]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-md p-3 md:p-6">
@@ -178,32 +204,29 @@ export default function CVPreviewModal({
                 />
               </div>
             ) : viewMode === "document" && isDocx ? (
-              /* Formatted In-App Document Paper for Word .docx files */
-              <div className="w-full h-full overflow-y-auto p-4 md:p-8 bg-black/60 flex justify-center items-start">
-                <div className="w-full max-w-4xl bg-[#0f1719] text-gray-100 rounded-2xl shadow-2xl p-8 md:p-12 border border-white/10 my-4 flex flex-col gap-6 font-sans">
-                  <div className="border-b border-white/10 pb-6 mb-2">
-                    <h1 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
-                      {candidate.candidate_name || "Candidate Resume"}
-                      <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
-                        DOCX Preview
-                      </span>
-                    </h1>
-                    <p className="text-sm font-semibold text-accent uppercase tracking-wider mt-1.5">
-                      {candidate.current_role || "Professional Candidate"}
-                    </p>
-                    {candidate.contact && (
-                      <div className="flex flex-wrap gap-4 text-xs font-mono text-gray-400 mt-3 bg-black/40 p-3 rounded-xl border border-white/5">
-                        {candidate.contact.email && <span>✉ {candidate.contact.email}</span>}
-                        {candidate.contact.phone && <span>☎ {candidate.contact.phone}</span>}
-                        {candidate.contact.location && <span>📍 {candidate.contact.location}</span>}
-                      </div>
-                    )}
+              /* Converted PDF viewer for DOCX files */
+              <div className="w-full h-full bg-[#525659] flex items-center justify-center relative">
+                {isConverting ? (
+                  <div className="flex flex-col items-center justify-center gap-4 text-emerald-400">
+                    <GridLoader color="green" mode="stagger" size="sm" rounded />
+                    <p className="font-mono text-sm tracking-widest uppercase">Converting DOCX to PDF...</p>
                   </div>
-
-                  <div className="text-sm text-gray-300 font-mono whitespace-pre-wrap leading-relaxed select-text space-y-4">
-                    {candidate.full_text || "No extracted text available for this Word document."}
+                ) : convertError ? (
+                  <div className="flex flex-col items-center justify-center gap-4 text-red-400 p-8 text-center max-w-md">
+                    <X size={48} />
+                    <p className="font-mono text-sm">Failed to convert document.</p>
+                    <p className="text-xs text-red-400/70">{convertError}</p>
+                    <SpecularButton size="sm" onClick={() => setViewMode("raw")} baseColor="#1a0f0f" lineColor="#ef4444" textColor="#f87171" className="mt-4">
+                      View Parsed Text Instead
+                    </SpecularButton>
                   </div>
-                </div>
+                ) : pdfUrl ? (
+                  <iframe
+                    src={`${pdfUrl}#view=FitH&toolbar=1&navpanes=0`}
+                    className="w-full h-full border-none block"
+                    title="Converted DOCX Preview"
+                  />
+                ) : null}
               </div>
             ) : (
               /* Extracted Clean Text View */
