@@ -34,13 +34,29 @@ def compute_bm25_scores(
 
     # Prepend query itself to the corpus as the gold-standard ideal document
     full_corpus = [tokenized_query] + tokenized_corpus
+    
+    # FIX FOR STREAMING PIPELINE:
+    # BM25 IDF collapses when N is too small (e.g., N=2 when streaming 1 CV at a time).
+    # We append 15 dummy documents to simulate a batch background corpus, restoring proper IDF math.
+    if len(full_corpus) < 10:
+        dummy_docs = [["dummy_background_term_for_idf_stability"] for _ in range(15)]
+        full_corpus.extend(dummy_docs)
+
     bm25 = BM25Okapi(full_corpus)
     all_scores = bm25.get_scores(tokenized_query)
 
     # In real hiring, a top resume contains the technical terms (~25-30% of full JD vocabulary with boilerplates)
     # Saturation threshold maps realistic full technical keyword coverage to 1.0
-    saturation_benchmark = max(0.001, float(all_scores[0])) * 0.28
-    candidate_raw_scores = all_scores[1:]
+    saturation_benchmark = max(0.001, float(all_scores[0]))
+    
+    # Only apply the massive 0.28 discount factor if we are dealing with a large real corpus where IDF values skew.
+    # When streaming single CVs with dummy background documents, the theoretical max is the full query self-score.
+    if len(corpus_texts) > 5:
+        saturation_benchmark *= 0.28
+    else:
+        # For single streaming, allow a bit of leniency (a resume rarely has EVERY single word in a JD)
+        saturation_benchmark *= 0.65
+    candidate_raw_scores = all_scores[1:1 + len(corpus_texts)]
 
     return [
         max(0.0, min(1.0, float(s / saturation_benchmark)))

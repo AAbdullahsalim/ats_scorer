@@ -31,6 +31,33 @@ export async function analyzeCandidates(
 
   return response.json();
 }
+export async function analyzeSingleCandidate(
+  cvFile: File,
+  jdText: string,
+  targetYoe: number = 0,
+  mustHaveSkills: string = "",
+  niceToHaveSkills: string = "",
+  signal?: AbortSignal
+) {
+  const formData = new FormData();
+  formData.append("cv_file", cvFile);
+  formData.append("jd_text", jdText);
+  formData.append("target_yoe", targetYoe.toString());
+  if (mustHaveSkills) formData.append("must_have_skills", mustHaveSkills);
+  if (niceToHaveSkills) formData.append("nice_to_have_skills", niceToHaveSkills);
+
+  const response = await fetch(`${API_URL}/analyze-single`, {
+    method: "POST",
+    body: formData,
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.statusText}`);
+  }
+
+  return response.json();
+}
 
 export async function parseJd(jdFile: File) {
   const formData = new FormData();

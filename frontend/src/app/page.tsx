@@ -8,7 +8,7 @@ import CircularGallery from "@/components/CircularGallery";
 import GamerProfileModal from "@/components/GamerProfileModal";
 import CVPreviewModal from "@/components/CVPreviewModal";
 import { MagneticButton } from "@/registry/magicui/magnetic-button";
-import { analyzeCandidates, parseJd, exportReport } from "@/lib/api";
+import { analyzeCandidates, parseJd, exportReport, analyzeSingleCandidate } from "@/lib/api";
 import { X, Plus, User, Trash2, Download, FileSpreadsheet, ChevronDown, FileText, FileCheck, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,8 @@ import CountUp from "@/components/CountUp";
 import { NoiseTexture } from "@/registry/magicui/noise-texture";
 import CosmicDust from "@/components/lightswind/cosmic-dust";
 import UniversityFilter from "@/components/UniversityFilter";
+import UploadSection from "@/components/UploadSection";
+import ActionControls from "@/components/ActionControls";
 
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -244,43 +246,74 @@ export default function Home() {
       setErrorMsg("Please upload a Job Description first.");
       return;
     }
+    if (!jdAnalysis || !jdAnalysis.jd_text) {
+      setErrorMsg("JD is still parsing. Please wait.");
+      return;
+    }
     if (cvFiles.length === 0) {
       setErrorMsg("Please upload at least one CV.");
       return;
     }
 
     setIsProcessing(true);
-    setProgress(10); // Start progress
+    setProgress(0);
+    setAllCandidates([]); // Reset before stream
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
     try {
-      progressIntervalRef.current = setInterval(() => {
-        setProgress(p => Math.min(p + 2, 90)); // cap at 90% until done
-      }, 500);
-
       const customSkillsStr = skills.join(",");
-      const results = await analyzeCandidates(
-        jdFile,
-        cvFiles,
-        yoe,
-        customSkillsStr,
-        "",
-        controller.signal
-      );
-
-      const rawResults = results.candidates || [];
-
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
+      let completedCount = 0;
+      const totalCount = cvFiles.length;
+      
+      const MAX_CONCURRENT = 12;
+      const batches = [];
+      
+      // Chunk CV files into batches of 12
+      for (let i = 0; i < cvFiles.length; i += MAX_CONCURRENT) {
+        batches.push(cvFiles.slice(i, i + MAX_CONCURRENT));
       }
-      setProgress(100);
 
-      // Store all candidates from backend run
-      setAllCandidates(rawResults);
-      setJdAnalysis(results.jd_analysis || null);
+      const results = [];
+      
+      for (const batch of batches) {
+        if (controller.signal.aborted) break;
+
+        const batchPromises = batch.map(async (cvFile) => {
+          try {
+            const result = await analyzeSingleCandidate(
+              cvFile,
+              jdAnalysis.jd_text,
+              yoe,
+              customSkillsStr,
+              "",
+              controller.signal
+            );
+            
+            if (result) {
+              results.push(result);
+              // Stream UI update instantly as ONE finishes
+              setAllCandidates(prev => {
+                const updated = [...prev, result].sort((a, b) => b.final_score_pct - a.final_score_pct);
+                return updated;
+              });
+              completedCount++;
+              setProgress(Math.floor((completedCount / totalCount) * 100));
+            }
+            return result;
+          } catch (e) {
+            console.error(`Failed to analyze ${cvFile.name}:`, e);
+            // Even on failure, update progress so it doesn't stall
+            completedCount++;
+            setProgress(Math.floor((completedCount / totalCount) * 100));
+            return null; // Graceful skip on error
+          }
+        });
+
+        // Wait for the current batch of 12 to complete before starting the next batch of 12
+        await Promise.all(batchPromises);
+      }
 
       // Create object URLs for document preview
       const urls: Record<string, string> = {};
@@ -289,16 +322,11 @@ export default function Home() {
       });
       setFileUrls(urls);
 
-      // Stop processing state after a short delay
       setTimeout(() => {
         setIsProcessing(false);
       }, 1000);
 
     } catch (error: any) {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
       if (error.name === "AbortError" || controller.signal.aborted) {
         console.log("Analysis aborted by user.");
         setErrorMsg("Batch analysis cancelled by user.");
@@ -380,295 +408,31 @@ export default function Home() {
             </h1>
           </div>
 
-          <div className="flex gap-4 mt-8 lg:mt-0 items-center">
-            {/* Hidden File Inputs */}
-            <input
-              type="file"
-              ref={jdInputRef}
-              className="hidden"
-              accept=".pdf,.docx,.txt"
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  handleJdUpload(e.target.files[0]);
-                }
-              }}
-            />
-            <input
-              type="file"
-              ref={cvInputRef}
-              className="hidden"
-              multiple
-              accept=".pdf,.docx,.txt"
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  handleAddCvFiles(e.target.files);
-                }
-              }}
-            />
-
-            {/* JD Button & Dropdown */}
-            <div className="relative" ref={jdDropdownRef}>
-              <div className="flex items-center bg-white/[0.03] rounded-full border border-white/10 p-1 backdrop-blur-sm transition-all hover:bg-white/[0.05] hover:border-amber-500/40 shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
-                <InteractiveHoverButton
-                  text={isParsingJd ? "Parsing..." : jdFile ? "JD Loaded ✓" : "Upload JD"}
-                  loaderColor="amber"
-                  className="!border-0 !bg-transparent"
-                  onClick={() => {
-                    if (!jdFile) {
-                      jdInputRef.current?.click();
-                    } else {
-                      setShowJdDropdown(!showJdDropdown);
-                    }
-                  }}
-                  disabled={isParsingJd}
-                />
-                {jdFile && (
-                  <button
-                    onClick={() => setShowJdDropdown(!showJdDropdown)}
-                    className="pr-3 pl-0.5 py-1.5 text-muted-foreground hover:text-amber-400 transition-all active:scale-95 flex items-center justify-center cursor-pointer"
-                    title="JD Options & Controls"
-                  >
-                    <ChevronDown size={14} className={cn("transition-transform duration-200", showJdDropdown && "rotate-180")} />
-                  </button>
-                )}
-              </div>
-
-              {/* JD Dropdown Menu */}
-              <AnimatePresence>
-                {showJdDropdown && jdFile && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    transition={{ duration: 0.2 }}
-                    className="absolute right-0 mt-3 w-72 p-4 rounded-2xl bg-black/90 border border-amber-500/30 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 flex flex-col gap-3"
-                  >
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                        <FileCheck size={14} /> Active Job Description
-                      </span>
-                      <button
-                        onClick={() => setShowJdDropdown(false)}
-                        className="text-muted-foreground hover:text-foreground p-1 rounded-md"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-3 bg-white/[0.04] p-3 rounded-xl border border-white/5">
-                      <FileText size={20} className="text-amber-400 shrink-0" />
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-xs font-bold text-foreground truncate" title={jdFile.name}>
-                          {jdFile.name}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {formatFileSize(jdFile.size)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 mt-1">
-                      <SpecularButton
-                        size="sm"
-                        baseColor="#141008"
-                        lineColor="#f59e0b"
-                        textColor="#fbbf24"
-                        onClick={() => {
-                          setShowJdDropdown(false);
-                          jdInputRef.current?.click();
-                        }}
-                        className="flex-1 !py-1.5 !px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <RefreshCw size={12} /> Replace JD
-                      </SpecularButton>
-
-                      <button
-                        onClick={handleRemoveJdFile}
-                        className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-95 flex items-center justify-center cursor-pointer"
-                        title="Remove JD"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* CVs Button & Dropdown */}
-            <div className="relative" ref={cvDropdownRef}>
-              <div className="flex items-center bg-white/[0.03] rounded-full border border-white/10 p-1 backdrop-blur-sm transition-all hover:bg-white/[0.05] hover:border-emerald-500/40 shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
-                <InteractiveHoverButton
-                  text={cvFiles.length > 0 ? `${cvFiles.length} CVs ✓` : "Upload CVs"}
-                  loaderColor="green"
-                  className="!border-0 !bg-transparent"
-                  onClick={() => {
-                    if (cvFiles.length === 0) {
-                      cvInputRef.current?.click();
-                    } else {
-                      setShowCvDropdown(!showCvDropdown);
-                    }
-                  }}
-                />
-                {cvFiles.length > 0 && (
-                  <button
-                    onClick={() => setShowCvDropdown(!showCvDropdown)}
-                    className="pr-3 pl-0.5 py-1.5 text-muted-foreground hover:text-emerald-400 transition-all active:scale-95 flex items-center justify-center cursor-pointer"
-                    title="CV Batch Controls"
-                  >
-                    <ChevronDown size={14} className={cn("transition-transform duration-200", showCvDropdown && "rotate-180")} />
-                  </button>
-                )}
-              </div>
-
-              {/* CVs Dropdown Menu */}
-              <AnimatePresence>
-                {showCvDropdown && cvFiles.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    transition={{ duration: 0.2 }}
-                    className="absolute right-0 mt-3 w-80 p-4 rounded-2xl bg-black/90 border border-emerald-500/30 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 flex flex-col gap-3"
-                  >
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">
-                          CV Batch ({cvFiles.length})
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={handleClearAllCvs}
-                          className="text-[10px] text-red-400 hover:text-red-300 font-mono uppercase px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 active:scale-95 transition-all"
-                        >
-                          Clear All
-                        </button>
-                        <button
-                          onClick={() => setShowCvDropdown(false)}
-                          className="text-muted-foreground hover:text-foreground p-1 rounded-md"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Scrollable File List */}
-                    <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
-                      {cvFiles.map((file, idx) => (
-                        <div
-                          key={`${file.name}_${file.size}_${idx}`}
-                          className="flex items-center justify-between gap-2 bg-white/[0.03] p-2.5 rounded-xl border border-white/5 hover:border-emerald-500/30 hover:bg-white/[0.06] transition-all group"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <span className="text-[10px] font-mono text-muted-foreground w-4">#{idx + 1}</span>
-                            <FileText size={16} className="text-emerald-400 shrink-0" />
-                            <div className="flex flex-col min-w-0 flex-1">
-                              <span className="text-xs font-semibold text-foreground truncate" title={file.name}>
-                                {file.name}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground font-mono">
-                                {formatFileSize(file.size)}
-                              </span>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => handleRemoveCvFile(idx)}
-                            className="opacity-70 group-hover:opacity-100 p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-95 cursor-pointer"
-                            title="Remove CV"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Add More CVs Button */}
-                    <SpecularButton
-                      size="sm"
-                      baseColor="#081412"
-                      lineColor="#5e8d77"
-                      textColor="#5e8d77"
-                      onClick={() => {
-                        setShowCvDropdown(false);
-                        cvInputRef.current?.click();
-                      }}
-                      className="w-full !py-2 font-mono text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 mt-1 border border-emerald-500/30 hover:border-emerald-500 cursor-pointer"
-                    >
-                      <Plus size={14} /> ADD MORE CVS
-                    </SpecularButton>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
+          <UploadSection
+            jdFile={jdFile}
+            cvFiles={cvFiles}
+            isParsingJd={isParsingJd}
+            showJdDropdown={showJdDropdown}
+            setShowJdDropdown={setShowJdDropdown}
+            showCvDropdown={showCvDropdown}
+            setShowCvDropdown={setShowCvDropdown}
+            handleJdUpload={handleJdUpload}
+            handleAddCvFiles={handleAddCvFiles}
+            handleRemoveJdFile={handleRemoveJdFile}
+            handleRemoveCvFile={handleRemoveCvFile}
+            handleClearAllCvs={handleClearAllCvs}
+          />
         </div>
 
         {/* Global Controls (Below Header Line) */}
-        <div className="flex items-center justify-end w-full max-w-7xl mt-4 gap-6">
-
-          {/* Sleek Min YOE Control */}
-          <div className="flex items-center gap-5 bg-white/[0.03] p-2 rounded-full border border-white/10 backdrop-blur-sm shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)] transition-all hover:bg-white/[0.05]">
-            <span className="text-sm font-bold text-muted-foreground uppercase tracking-widest pl-4">Min YOE</span>
-            <div className="flex items-center bg-black/60 rounded-full border border-black/50 shadow-inner p-1 gap-1">
-              <SpecularButton
-                size="sm"
-                onClick={() => setYoe(Math.max(0, yoe - 1))}
-                baseColor="#0a0f10"
-                lineColor="#5e8d77"
-                textColor="#a3a3a3"
-                className="!w-10 !h-10 !p-0 !rounded-full flex items-center justify-center text-xl font-bold active:scale-95 transition-transform"
-              >
-                -
-              </SpecularButton>
-
-              <div className="w-14 flex justify-center items-center font-mono text-2xl font-bold text-accent drop-shadow-[0_0_10px_rgba(94,141,119,0.5)]">
-                <CountUp to={yoe} duration={0.4} />
-              </div>
-
-              <SpecularButton
-                size="sm"
-                onClick={() => setYoe(yoe + 1)}
-                baseColor="#0a0f10"
-                lineColor="#5e8d77"
-                textColor="#a3a3a3"
-                className="!w-10 !h-10 !p-0 !rounded-full flex items-center justify-center text-xl font-bold active:scale-95 transition-transform"
-              >
-                +
-              </SpecularButton>
-            </div>
-          </div>
-
-          {/* Premium Strict Mode Toggle */}
-          <div className="flex items-center gap-4 bg-white/[0.03] p-1.5 pr-2 rounded-full border border-white/10 backdrop-blur-sm shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)] transition-all hover:bg-white/[0.05]">
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest pl-3">Strict Mode</span>
-            <button
-              onClick={() => setStrictMode(!strictMode)}
-              className={cn(
-                "w-12 h-6 rounded-full transition-all duration-300 relative shadow-inner overflow-hidden",
-                strictMode ? "bg-accent/80 border border-accent/50" : "bg-black/60 border border-white/5"
-              )}
-            >
-              <motion.div
-                layout
-                transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                className={cn(
-                  "absolute top-0.5 bottom-0.5 w-5 rounded-full bg-white transition-all",
-                  strictMode ? "left-[22px] shadow-[0_0_10px_rgba(255,255,255,0.8)]" : "left-0.5 opacity-60 shadow-none"
-                )}
-              />
-            </button>
-          </div>
-
-          {/* University Filter */}
-          <div className="flex items-center">
-            <UniversityFilter 
-              selectedUniversities={selectedUniversities}
-              onChange={setSelectedUniversities}
-            />
-          </div>
-        </div>
+        <ActionControls
+          yoe={yoe}
+          setYoe={setYoe}
+          strictMode={strictMode}
+          setStrictMode={setStrictMode}
+          selectedUniversities={selectedUniversities}
+          setSelectedUniversities={setSelectedUniversities}
+        />
 
         {/* Main Content Area - Golden Ratio Layout */}
         <div className="flex flex-col lg:flex-row items-start justify-center gap-12 w-full max-w-7xl mt-16">
@@ -895,19 +659,62 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {isFilterLoading ? (
-                        /* Skeleton Loading Rows */
-                        Array.from({ length: Math.min(allCandidates.length, 5) }).map((_, sIdx) => (
+                      {/* Filtered Candidate Rows */}
+                      {filteredCandidates.map((cand: any, idx: number) => {
+                        const isLowScore = cand.final_score_pct < 20;
+                        return (
+                          <tr key={idx} className="hover:bg-white/5 transition-colors group">
+                            <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">#{idx + 1}</td>
+                            <td className="p-4">
+                              <div className="font-bold text-foreground text-sm truncate max-w-[200px]" title={cand.candidate_name}>{cand.candidate_name || "Unknown"}</div>
+                              <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={cand.current_role}>{cand.current_role || "Candidate"}</div>
+                            </td>
+                            <td className="p-4">
+                              <span className={`px-2 py-1 text-xs font-bold rounded-full border ${isLowScore ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-accent/20 text-accent border-accent/30'}`}>
+                                {cand.final_score_pct?.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="p-4 text-sm font-mono text-muted-foreground">{cand.candidate_yoe}</td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-accent bg-accent/10 px-3 py-1 rounded-full border border-accent/20" title={cand.contextual_skills?.join(", ")}>
+                                  {cand.contextual_skills?.length || 0} Found
+                                </span>
+                                <span className="text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20" title={cand.missing_skills?.join(", ")}>
+                                  {cand.missing_skills?.length || 0} Missing
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-4 pr-6 text-right flex justify-end">
+                              <GlassIcons
+                                colorful={true}
+                                items={[
+                                  {
+                                    icon: <User size={18} strokeWidth={2.5} />,
+                                    color: 'indigo',
+                                    label: 'View Profile',
+                                    onClick: () => setSelectedCandidate(cand)
+                                  }
+                                ]}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* Processing Skeletons appended at the bottom while streaming */}
+                      {isProcessing && cvFiles.length > allCandidates.length && (
+                        Array.from({ length: Math.min(cvFiles.length - allCandidates.length, 5) }).map((_, sIdx) => (
                           <tr key={`skel_${sIdx}`} className="animate-pulse bg-white/[0.01]">
                             <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">
                               <div className="h-4 w-6 bg-white/10 rounded-full"></div>
                             </td>
                             <td className="p-4">
-                              <div className="h-4 w-32 bg-white/10 rounded-lg mb-1.5"></div>
+                              <div className="h-4 w-32 bg-white/10 rounded-lg mb-1.5 shadow-[0_0_10px_rgba(255,255,255,0.05)]"></div>
                               <div className="h-3 w-20 bg-white/5 rounded-lg"></div>
                             </td>
                             <td className="p-4">
-                              <div className="h-6 w-14 bg-emerald-500/15 border border-emerald-500/20 rounded-full"></div>
+                              <div className="h-6 w-14 bg-emerald-500/15 border border-emerald-500/20 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.1)]"></div>
                             </td>
                             <td className="p-4">
                               <div className="h-4 w-8 bg-white/10 rounded-full"></div>
@@ -923,51 +730,10 @@ export default function Home() {
                             </td>
                           </tr>
                         ))
-                      ) : filteredCandidates.length > 0 ? (
-                        /* Filtered Candidate Rows */
-                        filteredCandidates.map((cand: any, idx: number) => {
-                          const isLowScore = cand.final_score_pct < 20;
-                          return (
-                            <tr key={idx} className="hover:bg-white/5 transition-colors group">
-                              <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">#{idx + 1}</td>
-                              <td className="p-4">
-                                <div className="font-bold text-foreground text-sm truncate max-w-[200px]" title={cand.candidate_name}>{cand.candidate_name || "Unknown"}</div>
-                                <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={cand.current_role}>{cand.current_role || "Candidate"}</div>
-                              </td>
-                              <td className="p-4">
-                                <span className={`px-2 py-1 text-xs font-bold rounded-full border ${isLowScore ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-accent/20 text-accent border-accent/30'}`}>
-                                  {cand.final_score_pct?.toFixed(1)}%
-                                </span>
-                              </td>
-                              <td className="p-4 text-sm font-mono text-muted-foreground">{cand.candidate_yoe}</td>
-                              <td className="p-4">
-                                <div className="flex items-center gap-2 text-xs">
-                                  <span className="text-accent bg-accent/10 px-3 py-1 rounded-full border border-accent/20" title={cand.contextual_skills?.join(", ")}>
-                                    {cand.contextual_skills?.length || 0} Found
-                                  </span>
-                                  <span className="text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20" title={cand.missing_skills?.join(", ")}>
-                                    {cand.missing_skills?.length || 0} Missing
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="p-4 pr-6 text-right flex justify-end">
-                                <GlassIcons
-                                  colorful={true}
-                                  items={[
-                                    {
-                                      icon: <User size={18} strokeWidth={2.5} />,
-                                      color: 'indigo',
-                                      label: 'View Profile',
-                                      onClick: () => setSelectedCandidate(cand)
-                                    }
-                                  ]}
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        /* Empty Filter Result State */
+                      )}
+
+                      {/* Empty State */}
+                      {!isProcessing && filteredCandidates.length === 0 && allCandidates.length > 0 && (
                         <tr>
                           <td colSpan={6} className="p-8 text-center bg-black/20">
                             <div className="flex flex-col items-center justify-center gap-2">

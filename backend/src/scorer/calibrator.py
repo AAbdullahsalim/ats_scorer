@@ -12,7 +12,7 @@ import math
 # Calibration constants (matching backend/config.py)
 CALIBRATION_FLOOR = 0.10
 CALIBRATION_CEILING = 0.52
-MUST_HAVE_PENALTY_SEVERITY = 0.35
+MUST_HAVE_PENALTY_SEVERITY = 0.85  # Increased from 0.35. A candidate with 0 skills will now lose 85% of their score!
 NICE_TO_HAVE_BONUS_MAX = 0.05
 
 
@@ -136,6 +136,13 @@ def apply_leader_relative_scaling(
     - Leaves unqualified candidates (< 20%) strictly at their raw/low score.
     """
     if not scores:
+        return scores
+
+    # FIX FOR STREAMING PIPELINE:
+    # Relative scaling (anchoring to the top candidate) only makes mathematical sense 
+    # when processing an actual batch. If N=1, the single candidate becomes their own "leader" 
+    # and gets artificially inflated to 94.0%.
+    if len(scores) < 2:
         return scores
 
     max_score = max(scores)
