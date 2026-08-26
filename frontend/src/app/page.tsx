@@ -94,6 +94,7 @@ export default function Home() {
 
   const jdInputRef = useRef<HTMLInputElement>(null);
   const cvInputRef = useRef<HTMLInputElement>(null);
+  const [convertedPdfUrls, setConvertedPdfUrls] = useState<Record<string, string>>({});
   const abortControllerRef = useRef<AbortController | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -281,6 +282,14 @@ export default function Home() {
         if (controller.signal.aborted) break;
 
         const batchPromises = batch.map(async (cvFile) => {
+          // BACKGROUND DOCX CONVERSION
+          const isDocx = cvFile.name.toLowerCase().endsWith('.docx') || cvFile.name.toLowerCase().endsWith('.doc');
+          if (isDocx) {
+            convertDocxToPdf(cvFile).then(pdfUrl => {
+              setConvertedPdfUrls(prev => ({ ...prev, [cvFile.name]: pdfUrl }));
+            }).catch(e => console.error(`Background conversion failed for ${cvFile.name}:`, e));
+          }
+
           try {
             const result = await analyzeSingleCandidate(
               cvFile,
@@ -818,6 +827,7 @@ export default function Home() {
           <CVPreviewModal
             candidate={selectedCandidate}
             fileUrl={fileUrls[selectedCandidate.file_name]}
+            preConvertedPdfUrl={convertedPdfUrls[selectedCandidate.file_name]}
             onClose={() => {
               setSelectedCandidate(null);
               setShowCV(false);

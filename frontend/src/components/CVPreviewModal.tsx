@@ -12,17 +12,19 @@ import GridLoader from "@/components/GridLoader";
 interface CVPreviewModalProps {
   candidate: any;
   fileUrl?: string;
+  preConvertedPdfUrl?: string;
   onClose: () => void;
 }
 
 export default function CVPreviewModal({
   candidate,
   fileUrl,
+  preConvertedPdfUrl,
   onClose,
 }: CVPreviewModalProps) {
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"document" | "raw">("document");
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(preConvertedPdfUrl || null);
   const [isConverting, setIsConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
 
