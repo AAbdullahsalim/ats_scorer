@@ -8,7 +8,7 @@ import CircularGallery from "@/components/CircularGallery";
 import GamerProfileModal from "@/components/GamerProfileModal";
 import CVPreviewModal from "@/components/CVPreviewModal";
 import { MagneticButton } from "@/registry/magicui/magnetic-button";
-import { analyzeCandidates, parseJd, exportReport, analyzeSingleCandidate } from "@/lib/api";
+import { analyzeCandidates, parseJd, exportReport, analyzeSingleCandidate, convertDocxToPdf } from "@/lib/api";
 import { X, Plus, User, Trash2, Download, FileSpreadsheet, ChevronDown, FileText, FileCheck, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -260,6 +260,13 @@ export default function Home() {
     setProgress(0);
     setAllCandidates([]); // Reset before stream
 
+    // Create object URLs for document preview IMMEDIATELY so they are available while streaming
+    const urls: Record<string, string> = {};
+    cvFiles.forEach(file => {
+      urls[file.name] = URL.createObjectURL(file);
+    });
+    setFileUrls(urls);
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -324,12 +331,7 @@ export default function Home() {
         await Promise.all(batchPromises);
       }
 
-      // Create object URLs for document preview
-      const urls: Record<string, string> = {};
-      cvFiles.forEach(file => {
-        urls[file.name] = URL.createObjectURL(file);
-      });
-      setFileUrls(urls);
+      // Object URLs are now created at the very start of the function
 
       setTimeout(() => {
         setIsProcessing(false);
@@ -655,10 +657,10 @@ export default function Home() {
                 </div>
 
                 {/* Detailed Results Table or Loading Skeleton */}
-                <div className="overflow-x-auto rounded-3xl bg-secondary/10 border border-border shadow-xl backdrop-blur-sm">
+                <div className="overflow-x-auto overflow-y-auto max-h-[600px] relative rounded-3xl bg-secondary/10 border border-border shadow-xl backdrop-blur-sm">
                   <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-white/5 bg-black/20 text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    <thead className="sticky top-0 z-10 bg-[#0d1415]/95 backdrop-blur-md shadow-sm">
+                      <tr className="border-b border-white/5 text-xs uppercase tracking-wider text-muted-foreground font-semibold">
                         <th className="p-4 pl-6 w-16">Rank</th>
                         <th className="p-4 w-48">Candidate</th>
                         <th className="p-4 w-24">Match</th>
@@ -686,10 +688,10 @@ export default function Home() {
                             <td className="p-4 text-sm font-mono text-muted-foreground">{cand.candidate_yoe}</td>
                             <td className="p-4">
                               <div className="flex items-center gap-2 text-xs">
-                                <span className="text-accent bg-accent/10 px-3 py-1 rounded-full border border-accent/20" title={cand.contextual_skills?.join(", ")}>
+                                <span className="text-accent bg-accent/10 px-3 py-1 rounded-full border border-accent/20 whitespace-nowrap" title={cand.contextual_skills?.join(", ")}>
                                   {cand.contextual_skills?.length || 0} Found
                                 </span>
-                                <span className="text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20" title={cand.missing_skills?.join(", ")}>
+                                <span className="text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20 whitespace-nowrap" title={cand.missing_skills?.join(", ")}>
                                   {cand.missing_skills?.length || 0} Missing
                                 </span>
                               </div>
@@ -765,42 +767,6 @@ export default function Home() {
                   </table>
                 </div>
 
-                {/* Visual Gallery with Loading Skeleton */}
-                <div className="mt-4">
-                  <h3 className="text-xl font-bold mb-6 text-foreground flex items-center gap-3">
-                    <span className="w-2 h-8 bg-accent rounded-full"></span>
-                    Visual Candidate Gallery
-                  </h3>
-                  {isFilterLoading ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {[1, 2, 3].map((n) => (
-                        <div key={n} className="h-40 rounded-3xl bg-black/40 border border-white/10 p-5 flex flex-col justify-between animate-pulse">
-                          <div className="flex justify-between items-center">
-                            <div className="h-4 w-28 bg-white/10 rounded-md"></div>
-                            <div className="h-5 w-12 bg-accent/20 rounded-full"></div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="h-3 w-36 bg-white/5 rounded-md"></div>
-                            <div className="h-3 w-24 bg-white/5 rounded-md"></div>
-                          </div>
-                          <div className="h-8 w-full bg-white/10 rounded-xl"></div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : filteredCandidates.length > 0 ? (
-                    <CircularGallery
-                      items={filteredCandidates}
-                      onItemClick={(item) => {
-                        setSelectedCandidate(item);
-                        setShowCV(true);
-                      }}
-                    />
-                  ) : (
-                    <div className="p-6 text-center text-xs font-mono text-muted-foreground bg-black/20 rounded-2xl border border-white/5">
-                      No gallery cards available under current filters.
-                    </div>
-                  )}
-                </div>
               </motion.div>
             ) : (
               <div className="flex items-center justify-center h-[300px] w-full border border-dashed border-border rounded-2xl bg-black/20 text-muted-foreground">
@@ -809,6 +775,45 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* Visual Gallery spanning full width below the columns */}
+        {allCandidates.length > 0 && (
+          <div className="w-full max-w-[1700px] z-10 mt-12 mb-20 px-0 lg:px-4">
+            <h3 className="text-2xl font-bold mb-8 text-foreground flex items-center gap-3">
+              <span className="w-2 h-8 bg-accent rounded-full shadow-[0_0_15px_rgba(94,141,119,0.5)]"></span>
+              Visual Candidate Gallery
+            </h3>
+            {isFilterLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} className="h-48 rounded-3xl bg-black/40 border border-white/10 p-5 flex flex-col justify-between animate-pulse">
+                    <div className="flex justify-between items-center">
+                      <div className="h-5 w-32 bg-white/10 rounded-md"></div>
+                      <div className="h-6 w-14 bg-accent/20 rounded-full"></div>
+                    </div>
+                    <div className="space-y-3 mt-4">
+                      <div className="h-4 w-48 bg-white/5 rounded-md"></div>
+                      <div className="h-4 w-32 bg-white/5 rounded-md"></div>
+                    </div>
+                    <div className="h-10 w-full bg-white/10 rounded-xl mt-4"></div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredCandidates.length > 0 ? (
+              <CircularGallery
+                items={filteredCandidates}
+                onItemClick={(item) => {
+                  setSelectedCandidate(item);
+                  setShowCV(true);
+                }}
+              />
+            ) : (
+              <div className="p-8 text-center text-sm font-mono text-muted-foreground bg-black/20 rounded-3xl border border-white/5 w-full">
+                No gallery cards available under current filters.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Modals */}
         {selectedCandidate && !showCV && (

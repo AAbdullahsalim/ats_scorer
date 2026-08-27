@@ -19,7 +19,7 @@ export default function CircularGallery({ items, onItemClick }: CircularGalleryP
     <div className="relative w-full h-[450px] flex items-center justify-center overflow-hidden bg-background rounded-2xl shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] border border-border">
       <div 
         ref={containerRef}
-        className="flex w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide py-10 px-[calc(50%-140px)] items-center gap-6"
+        className="flex w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide py-10 px-8 items-center gap-6"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {items.map((item, i) => (
