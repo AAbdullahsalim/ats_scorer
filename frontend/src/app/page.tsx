@@ -9,6 +9,7 @@ import GamerProfileModal from "@/components/GamerProfileModal";
 import CVPreviewModal from "@/components/CVPreviewModal";
 import { MagneticButton } from "@/registry/magicui/magnetic-button";
 import { analyzeCandidates, parseJd, exportReport, analyzeSingleCandidate, convertDocxToPdf } from "@/lib/api";
+import localforage from "localforage";
 import { X, Plus, User, Trash2, Download, FileSpreadsheet, ChevronDown, FileText, FileCheck, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,7 @@ export default function Home() {
 
   // Custom skills state for editing before analysis
   const [skills, setSkills] = useState<string[]>([]);
+  const [lastProcessedSkills, setLastProcessedSkills] = useState<string>("");
   const [newSkill, setNewSkill] = useState("");
   const [isParsingJd, setIsParsingJd] = useState(false);
   const [explodingSkills, setExplodingSkills] = useState<string[]>([]);
@@ -129,16 +131,34 @@ export default function Home() {
     setCvFiles(prev => {
       const existing = new Set(prev.map(f => `${f.name}_${f.size}`));
       const unique = fileArray.filter(f => !existing.has(`${f.name}_${f.size}`));
-      return [...prev, ...unique];
+      const updated = [...prev, ...unique];
+      localforage.setItem('cached_files', updated);
+      return updated;
     });
   };
 
   const handleRemoveCvFile = (indexToRemove: number) => {
-    setCvFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    setCvFiles(prev => {
+      const fileToRemove = prev[indexToRemove];
+      // Also remove from allCandidates if it exists
+      setAllCandidates(candidates => {
+        const updated = candidates.filter((c: any) => c.file_name !== fileToRemove.name);
+        localforage.setItem('cached_candidates', updated);
+        return updated;
+      });
+      const updatedFiles = prev.filter((_, idx) => idx !== indexToRemove);
+      localforage.setItem('cached_files', updatedFiles);
+      return updatedFiles;
+    });
   };
 
   const handleClearAllCvs = () => {
     setCvFiles([]);
+    setAllCandidates([]);
+    localforage.removeItem('cached_files');
+    localforage.removeItem('cached_candidates');
+    localforage.removeItem('cached_last_processed_skills');
+    setLastProcessedSkills("");
     setShowCvDropdown(false);
   };
 
@@ -146,6 +166,9 @@ export default function Home() {
     setJdFile(null);
     setJdAnalysis(null);
     setSkills([]);
+    localforage.removeItem('cached_jd_file');
+    localforage.removeItem('cached_jd_analysis');
+    localforage.removeItem('cached_skills');
     setShowJdDropdown(false);
   };
 
@@ -157,6 +180,41 @@ export default function Home() {
       return () => clearTimeout(timer);
     }
   }, [errorMsg]);
+
+  // Phase 5: Privacy-First IndexedDB Cache Hydration
+  useEffect(() => {
+    const hydrate = async () => {
+      try {
+        const cachedCandidates = await localforage.getItem<any[]>('cached_candidates');
+        const cachedFiles = await localforage.getItem<File[]>('cached_files');
+        const cachedJdFile = await localforage.getItem<File>('cached_jd_file');
+        const cachedJdAnalysis = await localforage.getItem<any>('cached_jd_analysis');
+        const cachedSkills = await localforage.getItem<string[]>('cached_skills');
+        const cachedLastSkills = await localforage.getItem<string>('cached_last_processed_skills');
+        
+        if (cachedJdFile) setJdFile(cachedJdFile);
+        if (cachedJdAnalysis) setJdAnalysis(cachedJdAnalysis);
+        if (cachedSkills && cachedSkills.length > 0) setSkills(cachedSkills);
+        if (cachedLastSkills) setLastProcessedSkills(cachedLastSkills);
+        
+        if (cachedCandidates && cachedCandidates.length > 0) {
+          setAllCandidates(cachedCandidates);
+        }
+        
+        if (cachedFiles && cachedFiles.length > 0) {
+          setCvFiles(cachedFiles);
+          const urls: Record<string, string> = {};
+          cachedFiles.forEach(f => {
+            urls[f.name] = URL.createObjectURL(f);
+          });
+          setFileUrls(urls);
+        }
+      } catch (e) {
+        console.error("Failed to hydrate session cache", e);
+      }
+    };
+    hydrate();
+  }, []);
 
   const handleCancelAnalysis = () => {
     if (abortControllerRef.current) {
@@ -223,18 +281,28 @@ export default function Home() {
 
   const handleJdUpload = async (file: File) => {
     setJdFile(file);
+    localforage.setItem('cached_jd_file', file);
     setErrorMsg(null);
     setIsParsingJd(true);
     try {
       const parsed = await parseJd(file);
       setJdAnalysis(parsed);
       setSkills(parsed.must_have_skills || []);
+      localforage.setItem('cached_jd_analysis', parsed);
+      localforage.setItem('cached_skills', parsed.must_have_skills || []);
     } catch (error) {
       console.error("Failed to parse JD:", error);
       setErrorMsg("Failed to auto-parse JD. Please check backend connection.");
     }
     setIsParsingJd(false);
   };
+
+  // Sync manual skill changes to cache
+  useEffect(() => {
+    if (skills.length > 0) {
+      localforage.setItem('cached_skills', skills);
+    }
+  }, [skills]);
 
   const handleRunAnalysis = async () => {
     if (isProcessing) {
@@ -256,13 +324,36 @@ export default function Home() {
       return;
     }
 
+    const currentSkillsStr = skills.join(",");
+    const skillsChanged = lastProcessedSkills !== "" && lastProcessedSkills !== currentSkillsStr;
+    
+    let filesToProcess = cvFiles;
+
+    if (skillsChanged) {
+      // If skills changed, invalidate the cache and process ALL files again.
+      setAllCandidates([]);
+      localforage.removeItem('cached_candidates');
+    } else {
+      // Phase 5: Delta Processing (Only process new CVs)
+      const existingFilenames = new Set(allCandidates.map((c: any) => c.file_name));
+      filesToProcess = cvFiles.filter(f => !existingFilenames.has(f.name));
+    }
+
+    if (filesToProcess.length === 0) {
+      setErrorMsg("All uploaded CVs have already been analyzed with the current skills.");
+      return;
+    }
+
+    // Save the snapshot of skills being used for this run
+    setLastProcessedSkills(currentSkillsStr);
+    localforage.setItem('cached_last_processed_skills', currentSkillsStr);
+
     setIsProcessing(true);
     setProgress(0);
-    setAllCandidates([]); // Reset before stream
 
-    // Create object URLs for document preview IMMEDIATELY so they are available while streaming
-    const urls: Record<string, string> = {};
-    cvFiles.forEach(file => {
+    // Create object URLs only for new files, merge with existing
+    const urls: Record<string, string> = { ...fileUrls };
+    filesToProcess.forEach(file => {
       urls[file.name] = URL.createObjectURL(file);
     });
     setFileUrls(urls);
@@ -273,14 +364,14 @@ export default function Home() {
     try {
       const customSkillsStr = skills.join(",");
       let completedCount = 0;
-      const totalCount = cvFiles.length;
+      const totalCount = filesToProcess.length;
       
       const MAX_CONCURRENT = 12;
       const batches = [];
       
-      // Chunk CV files into batches of 12
-      for (let i = 0; i < cvFiles.length; i += MAX_CONCURRENT) {
-        batches.push(cvFiles.slice(i, i + MAX_CONCURRENT));
+      // Chunk the files to process into batches of 12
+      for (let i = 0; i < filesToProcess.length; i += MAX_CONCURRENT) {
+        batches.push(filesToProcess.slice(i, i + MAX_CONCURRENT));
       }
 
       const results = [];
@@ -312,6 +403,7 @@ export default function Home() {
               // Stream UI update instantly as ONE finishes
               setAllCandidates(prev => {
                 const updated = [...prev, result].sort((a, b) => b.final_score_pct - a.final_score_pct);
+                localforage.setItem('cached_candidates', updated); // Persist to IndexedDB
                 return updated;
               });
               completedCount++;
