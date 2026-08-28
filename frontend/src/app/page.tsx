@@ -218,7 +218,7 @@ export default function Home() {
 
   const handleCancelAnalysis = () => {
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+      abortControllerRef.current.abort("Cancelled by user");
       abortControllerRef.current = null;
     }
     if (progressIntervalRef.current) {
@@ -410,8 +410,12 @@ export default function Home() {
               setProgress(Math.floor((completedCount / totalCount) * 100));
             }
             return result;
-          } catch (e) {
-            console.error(`Failed to analyze ${cvFile.name}:`, e);
+          } catch (e: any) {
+            if (e.name === 'AbortError' || e === 'Cancelled by user') {
+              // Silently ignore aborts, they are expected when user cancels
+            } else {
+              console.error(`Failed to analyze ${cvFile.name}:`, e);
+            }
             // Even on failure, update progress so it doesn't stall
             completedCount++;
             setProgress(Math.floor((completedCount / totalCount) * 100));
@@ -766,10 +770,15 @@ export default function Home() {
                       {filteredCandidates.map((cand: any, idx: number) => {
                         const isLowScore = cand.final_score_pct < 20;
                         return (
-                          <tr key={idx} className="hover:bg-white/5 transition-colors group">
+                          <tr key={idx} className={`hover:bg-white/5 transition-colors group ${!cand.llm_enhanced ? 'bg-green-900/20' : ''}`}>
                             <td className="p-4 pl-6 font-mono text-sm text-muted-foreground">#{idx + 1}</td>
                             <td className="p-4">
-                              <div className="font-bold text-foreground text-sm truncate max-w-[200px]" title={cand.candidate_name}>{cand.candidate_name || "Unknown"}</div>
+                              <div className="font-bold text-foreground text-sm truncate max-w-[200px] flex items-center gap-2" title={cand.candidate_name}>
+                                {cand.candidate_name || "Unknown"}
+                                {!cand.llm_enhanced && (
+                                  <span className="text-[9px] font-mono bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-sm" title="Processed via Regex Fallback (LLM Not Used)">REGEX</span>
+                                )}
+                              </div>
                               <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={cand.current_role}>{cand.current_role || "Candidate"}</div>
                             </td>
                             <td className="p-4">

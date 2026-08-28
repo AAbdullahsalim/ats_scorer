@@ -21,6 +21,7 @@ if _env_local.exists():
 # === LLM API Keys ===
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
 LLM_DISABLED: bool = os.getenv("LLM_DISABLED", "false").lower() == "true"
 
 # === Backend Config ===
@@ -34,7 +35,7 @@ EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
 GROQ_RPM: int = 30
 GEMINI_RPM: int = 15
 LLM_RETRY_DELAY_SECONDS: float = 5.0
-LLM_INTER_CALL_DELAY_SECONDS: float = 1.0
+LLM_INTER_CALL_DELAY_SECONDS: float = 4.1
 
 # === Processing Limits ===
 MAX_CVS_PER_BATCH: int = 30

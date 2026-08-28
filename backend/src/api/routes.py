@@ -264,11 +264,20 @@ async def analyze_single_candidate(
 
     if llm.is_available:
         prompt = build_cv_extraction_prompt(parsed.full_text, must_haves)
+        logger.info(f"LLM is available, calling JSON for {parsed.file_name}")
         raw = llm.call_json(prompt)
         if raw:
+            logger.info(f"LLM call returned data of type: {type(raw)}")
             llm_data = parse_cv_extraction(raw)
             if llm_data:
+                logger.info(f"Successfully parsed LLM data for {parsed.file_name}")
                 parsed = parsed.model_copy(update={"llm_data": llm_data})
+            else:
+                logger.warning(f"parse_cv_extraction returned None for raw data: {str(raw)[:200]}...")
+        else:
+            logger.warning(f"llm.call_json returned None for {parsed.file_name}")
+    else:
+        logger.warning(f"LLM is not available. Skipping LLM for {parsed.file_name}. Gemini ok: {llm._gemini_available}, Cooldown: {llm._gemini_rate_limit_until - time.time()}s remaining")
 
     # Score candidates takes a list, so we pass a list of 1 and extract the result
     results = pipeline.score_candidates(
