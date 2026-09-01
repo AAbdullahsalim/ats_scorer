@@ -1,6 +1,7 @@
 """
 Centralized configuration for ATS Scorer v2 backend.
 Loads environment variables and defines runtime constants.
+ALL scoring constants live here — this is the single source of truth.
 """
 
 import os
@@ -21,7 +22,6 @@ if _env_local.exists():
 # === LLM API Keys ===
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
 LLM_DISABLED: bool = os.getenv("LLM_DISABLED", "false").lower() == "true"
 
 # === Backend Config ===
@@ -35,7 +35,7 @@ EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
 GROQ_RPM: int = 30
 GEMINI_RPM: int = 15
 LLM_RETRY_DELAY_SECONDS: float = 5.0
-LLM_INTER_CALL_DELAY_SECONDS: float = 4.1
+LLM_INTER_CALL_DELAY_SECONDS: float = 1.0
 
 # === Processing Limits ===
 MAX_CVS_PER_BATCH: int = 30
@@ -47,10 +47,14 @@ SKILLS_SECTION_WEIGHT: float = 0.35
 RECENT_EXP_WEIGHT: float = 0.45
 OLDER_EXP_WEIGHT: float = 0.20
 
+# === BM25 Config ===
+BM25_SATURATION_MULTIPLIER: float = 0.45   # Fixed saturation, no batch-size dependency
+BM25_MIN_DUMMY_DOCS: int = 15              # Dummy docs for IDF stability
+
 # === Calibration Anchors ===
 CALIBRATION_FLOOR: float = 0.10
 CALIBRATION_CEILING: float = 0.52
 
 # === Penalty Config ===
-MUST_HAVE_PENALTY_SEVERITY: float = 0.40
+MUST_HAVE_PENALTY_SEVERITY: float = 0.85   # 0 skills matched = lose 85% of score
 NICE_TO_HAVE_BONUS_MAX: float = 0.05

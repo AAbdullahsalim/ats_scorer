@@ -8,12 +8,13 @@ from typing import Optional
 
 from sentence_transformers import SentenceTransformer
 
-# Scoring weights (matching backend/config.py)
-VECTOR_WEIGHT = 0.6
-BM25_WEIGHT = 0.4
-SKILLS_SECTION_WEIGHT = 0.35
-RECENT_EXP_WEIGHT = 0.45
-OLDER_EXP_WEIGHT = 0.20
+from config import (
+    VECTOR_WEIGHT,
+    BM25_WEIGHT,
+    SKILLS_SECTION_WEIGHT,
+    RECENT_EXP_WEIGHT,
+    OLDER_EXP_WEIGHT
+)
 from ..models.schemas import (
     CandidateResult, ScoringAudit, SubScores,
     ParsedCandidate, ContactInfo, SkillMatch,
@@ -28,7 +29,6 @@ from .calibrator import (
     apply_skill_penalty,
     apply_nice_to_have_bonus,
     apply_yoe_modifier,
-    apply_leader_relative_scaling,
 )
 
 
@@ -194,9 +194,7 @@ class ScoringPipeline:
             )
             yoe_amounts.append(yoe_mod)
 
-        # === Leader-Anchored Relative Normalization ===
-        # Anchor the top candidate to 94%+ and generalize a proportionate boost to candidates >= 20%
-        calibrated = apply_leader_relative_scaling(calibrated, target_top=94.0, min_qualification_threshold=20.0)
+        # (Removed Leader-Anchored Relative Normalization per v2 plan for score stability)
 
         # === Build results ===
         results: list[CandidateResult] = []

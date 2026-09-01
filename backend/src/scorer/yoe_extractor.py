@@ -1,13 +1,15 @@
 """
 Years of Experience (YOE) extractor.
-Fixes Bug #3: YOE extraction wrong most of the time.
 
-Improvements over v1:
-- More date formats: Jul'23, YYYY/MM, ISO dates, Q1 2024
-- Better academic date filtering
-- Explicit statement prioritization ("10+ years of experience")
-- Full-text fallback when section splitter fails
-- Work-role block recovery from other sections
+v2: Computes YOE deterministically from LLM experience entry dates
+instead of trusting a single LLM guess. Falls back to regex date parsing.
+
+Priority:
+1. Compute from LLM experience_entries (deterministic math)
+2. Explicit statements ("10+ years of experience")
+3. Regex date-range extraction from experience section
+4. Regex date-range extraction from full text (last resort)
+5. LLM total_yoe as final fallback (only if everything else is 0)
 """
 
 import re
@@ -38,6 +40,26 @@ ACADEMIC_KEYWORDS: list[str] = [
     "diploma", "certificate program", "bootcamp",
     "beaconhouse", "aga khan", "lums", "nust", "itu",
 ]
+
+
+def _compute_yoe_from_entries(experience_entries: list) -> float:
+    """
+    Compute YOE deterministically from LLM-extracted experience entries.
+    Uses the months field from each entry, with date-based validation.
+    
+    This handles all CV formats because the LLM has already parsed
+    the dates from whatever format they were in (timelines, explicit dates, etc.)
+    """
+    if not experience_entries:
+        return 0.0
+
+    total_months = 0
+    for entry in experience_entries:
+        months = getattr(entry, 'months', 0) or 0
+        if isinstance(months, (int, float)) and 0 < months <= 480:  # Max 40 years sanity
+            total_months += int(months)
+
+    return round(total_months / 12.0, 1)
 
 
 def _parse_date_ranges(text: str) -> list[tuple[int, int]]:
@@ -185,19 +207,23 @@ def extract_yoe(
     sections: dict[str, str],
     full_text: str = "",
     llm_yoe: Optional[float] = None,
+    llm_experience_entries: Optional[list] = None,
 ) -> float:
     """
     Extract total years of experience from CV.
 
-    Priority:
-    1. LLM-extracted YOE (if available)
+    Priority (v2):
+    1. Compute from LLM experience entries (deterministic math from dates)
     2. Explicit statements ("10+ years of experience")
     3. Date range extraction from experience section
     4. Date range extraction from full text (fallback)
+    5. LLM total_yoe as final fallback (only if everything else is 0)
     """
-    # Priority 1: LLM data
-    if llm_yoe is not None and llm_yoe > 0:
-        return llm_yoe
+    # Priority 1: Compute from LLM experience entries (deterministic)
+    if llm_experience_entries:
+        computed_yoe = _compute_yoe_from_entries(llm_experience_entries)
+        if computed_yoe > 0:
+            return computed_yoe
 
     # Build full text if not provided
     if not full_text:
@@ -262,10 +288,15 @@ def extract_yoe(
         # Priority 4: Try full text as last resort
         ranges = _parse_date_ranges(_filter_academic_lines(full_text))
 
-    if not ranges:
-        return 0.0
+    if ranges:
+        merged = _merge_overlapping_ranges(ranges)
+        total_months = sum(end - start for start, end in merged)
+        regex_yoe = round(total_months / 12.0, 1)
+        if regex_yoe > 0:
+            return regex_yoe
 
-    merged = _merge_overlapping_ranges(ranges)
-    total_months = sum(end - start for start, end in merged)
+    # Priority 5: LLM total_yoe as absolute final fallback
+    if llm_yoe is not None and llm_yoe > 0:
+        return llm_yoe
 
-    return round(total_months / 12.0, 1)
+    return 0.0

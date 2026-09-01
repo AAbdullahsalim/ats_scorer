@@ -1,11 +1,14 @@
 """
 LLM client with Groq primary (insanely fast inference) + Gemini fallback.
 Handles rate limiting, retries, and graceful degradation.
+
+v2: temperature=0.0, seed=42 for deterministic outputs.
 """
 
 import re
 import time
 import json
+import hashlib
 import logging
 from typing import Optional
 
@@ -20,9 +23,11 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     """
     Unified LLM client.
-    Uses Groq (Llama 3.1 8B) as primary for extreme speed.
+    Uses Groq (qwen3.8-27b) as primary for extreme speed.
     Falls back to Gemini if Groq fails.
     Falls back to None (regex-only) if both fail.
+    
+    v2: Deterministic settings (temp=0, seed=42) + response caching.
     """
 
     def __init__(self):
@@ -37,6 +42,10 @@ class LLMClient:
         
         self._groq_rate_limit_until = 0.0
         self._gemini_rate_limit_until = 0.0
+        
+        # Response cache: hash(prompt) -> parsed response
+        self._cache: dict[str, dict] = {}
+        
         self._init_clients()
 
     def _init_clients(self):
@@ -54,7 +63,7 @@ class LLMClient:
                     api_key=GROQ_API_KEY,
                 )
                 self._groq_available = True
-                logger.info("Groq client initialized (qwen3.8-27b primary)")
+                logger.info("Groq client initialized (qwen3.8-27b primary, temp=0, seed=42)")
             except ImportError:
                 logger.warning("openai package not installed. Run: pip install openai")
             except Exception as e:
@@ -102,8 +111,12 @@ class LLMClient:
         if elapsed < LLM_INTER_CALL_DELAY_SECONDS:
             time.sleep(LLM_INTER_CALL_DELAY_SECONDS - elapsed)
 
+    def _cache_key(self, prompt: str) -> str:
+        """Generate a cache key from the prompt."""
+        return hashlib.md5(prompt.encode()).hexdigest()
+
     def _call_groq(self, prompt: str) -> Optional[str]:
-        """Call Groq API. Returns response text or None on failure."""
+        """Call Groq API with deterministic settings. Returns response text or None."""
         if not self._groq_client:
             return None
         if time.time() < self._groq_rate_limit_until:
@@ -113,8 +126,9 @@ class LLMClient:
             response = self._groq_client.chat.completions.create(
                 model="qwen/qwen3.8-27b",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=2000,
+                temperature=0.0,       # DETERMINISTIC: no randomness
+                seed=42,               # DETERMINISTIC: fixed seed
+                max_tokens=3000,
                 response_format={"type": "json_object"},
             )
             result = response.choices[0].message.content
@@ -131,22 +145,21 @@ class LLMClient:
             return None
 
     def _call_gemini(self, prompt: str) -> Optional[str]:
-        """Call Gemini API using new google-genai SDK. Returns response text or None on failure."""
+        """Call Gemini API. Returns response text or None."""
         if not self._gemini_client:
             return None
         if time.time() < self._gemini_rate_limit_until:
             return None
 
         try:
-            from google import genai
             from google.genai import types
 
             response = self._gemini_client.models.generate_content(
                 model="gemini-1.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=2000,
+                    temperature=0.0,       # DETERMINISTIC
+                    max_output_tokens=3000,
                     response_mime_type="application/json",
                 ),
             )
@@ -194,39 +207,62 @@ class LLMClient:
     def call_json(self, prompt: str) -> Optional[dict]:
         """
         Call LLM and parse response as JSON.
+        Uses cache: same prompt = same result (no re-calling LLM).
         Returns parsed dict or None on failure.
         """
+        # Check cache first
+        cache_key = self._cache_key(prompt)
+        if cache_key in self._cache:
+            logger.info("LLM cache HIT — returning cached result")
+            return self._cache[cache_key]
+
         raw = self.call(prompt)
         if not raw:
             return None
 
         raw = raw.strip()
 
+        parsed = None
         try:
-            return json.loads(raw)
+            parsed = json.loads(raw)
         except json.JSONDecodeError:
             pass
 
-        match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
-        if match:
-            raw = match.group(1).strip()
-        else:
-            start = raw.find('{')
-            end = raw.rfind('}')
-            if start != -1 and end != -1:
-                raw = raw[start:end + 1]
+        if parsed is None:
+            match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
+            if match:
+                raw = match.group(1).strip()
+            else:
+                start = raw.find('{')
+                end = raw.rfind('}')
+                if start != -1 and end != -1:
+                    raw = raw[start:end + 1]
 
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                pass
 
-        repaired = self._repair_json(raw)
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM JSON response: {e}")
-            return None
+        if parsed is None:
+            repaired = self._repair_json(raw)
+            try:
+                parsed = json.loads(repaired)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM JSON response: {e}")
+                return None
+
+        # Cache successful result
+        if parsed:
+            self._cache[cache_key] = parsed
+            logger.info(f"LLM cache STORED (cache size: {len(self._cache)})")
+
+        return parsed
+
+    def clear_cache(self):
+        """Clear the response cache (call when skills list changes)."""
+        size = len(self._cache)
+        self._cache.clear()
+        logger.info(f"LLM cache CLEARED ({size} entries removed)")
 
     @staticmethod
     def _repair_json(text: str) -> str:

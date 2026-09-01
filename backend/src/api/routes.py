@@ -208,7 +208,16 @@ async def analyze_candidates(
                     candidates[i] = candidate.model_copy(
                         update={"llm_data": llm_data}
                     )
-                    logger.info(f"  -> LLM name: '{llm_data.candidate_name}', YOE: {llm_data.total_yoe}")
+                    
+                    # Detailed logging for transparency
+                    found_skills = [s.name for s in llm_data.skills_found if s.context != "missing"]
+                    missing_skills = [s.name for s in llm_data.skills_found if s.context == "missing"]
+                    logger.info(f"  -> LLM name: '{llm_data.candidate_name}'")
+                    logger.info(f"  -> LLM YOE (fallback guess): {llm_data.total_yoe}")
+                    logger.info(f"  -> LLM found {len(found_skills)} skills: {', '.join(found_skills)}")
+                    if missing_skills:
+                        logger.info(f"  -> LLM missed {len(missing_skills)} skills: {', '.join(missing_skills)}")
+                    
                 else:
                     logger.warning(f"  -> LLM parse failed for CV {i} ('{candidate.file_name}')")
             else:
@@ -270,7 +279,16 @@ async def analyze_single_candidate(
             logger.info(f"LLM call returned data of type: {type(raw)}")
             llm_data = parse_cv_extraction(raw)
             if llm_data:
-                logger.info(f"Successfully parsed LLM data for {parsed.file_name}")
+                
+                # Detailed logging for transparency
+                found_skills = [s.name for s in llm_data.skills_found if s.context != "missing"]
+                missing_skills = [s.name for s in llm_data.skills_found if s.context == "missing"]
+                logger.info(f"Successfully parsed LLM data for '{parsed.file_name}':")
+                logger.info(f"  -> Candidate: {llm_data.candidate_name}")
+                logger.info(f"  -> Skills Found ({len(found_skills)}): {', '.join(found_skills)}")
+                if missing_skills:
+                    logger.info(f"  -> Skills Missing ({len(missing_skills)}): {', '.join(missing_skills)}")
+                
                 parsed = parsed.model_copy(update={"llm_data": llm_data})
             else:
                 logger.warning(f"parse_cv_extraction returned None for raw data: {str(raw)[:200]}...")

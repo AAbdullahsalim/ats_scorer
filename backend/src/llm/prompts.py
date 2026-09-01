@@ -1,15 +1,29 @@
 """
 LLM prompt templates for CV extraction and JD analysis.
 All prompts return structured JSON for reliable parsing.
+
+v2: Restructured for DETERMINISTIC skill evaluation.
+The prompt forces the LLM to evaluate EACH required skill individually
+with a found: true/false field, eliminating open-ended ambiguity.
 """
 
 
 def build_cv_extraction_prompt(cv_text: str, required_skills: list[str]) -> str:
     """
     Build a prompt that extracts ALL structured data from a CV in ONE call.
-    Returns: name, contact, skills (with context), experience, YOE, education, summary.
+    Returns: name, contact, skill_evaluation (forced per-skill), experience, YOE, education, summary.
+    
+    KEY CHANGE: Instead of open-ended "skills_found", the LLM MUST evaluate
+    EVERY required skill with found=true/false. This eliminates non-determinism.
     """
-    skills_str = ", ".join(required_skills) if required_skills else "any relevant technical skills"
+    # Build the explicit skill evaluation instruction
+    if required_skills:
+        skills_instruction = "REQUIRED SKILLS TO EVALUATE (you MUST include ALL of these in skill_evaluation, even if missing):\n"
+        for i, skill in enumerate(required_skills, 1):
+            skills_instruction += f"  {i}. {skill}\n"
+        skills_instruction += "\nFor EACH skill above, you MUST return an entry in skill_evaluation with found=true or found=false."
+    else:
+        skills_instruction = "No specific skills to evaluate. Return an empty skill_evaluation array."
 
     return f"""You are a CV parser. Extract structured data from the CV below and return ONLY a single valid JSON object. No extra text before or after the JSON.
 
@@ -21,12 +35,18 @@ RULES:
 - Use 0 for missing numeric fields
 - Use [] for missing array fields
 - If a field cannot be determined, use its default value
+- CRITICAL: You MUST evaluate EVERY required skill listed below. Do NOT skip any.
 
-REQUIRED SKILLS TO CHECK: {skills_str}
+{skills_instruction}
 
-For each skill found, classify its context:
-- "project" = skill is USED in a described project, role, or achievement
-- "mentioned" = skill is only LISTED in a skills section without usage context
+For each skill, classify its context:
+- "project" = skill is USED in a described project, role, or achievement (e.g., "Built REST API using Flask" means Python is used in a project)
+- "mentioned" = skill is only LISTED in a skills section or mentioned without usage context
+- "missing" = skill is NOT found anywhere in the CV (set found=false)
+
+For experience_entries, extract EACH job/role with its start and end dates.
+Calculate the months field as the number of months between start and end.
+If end is "present" or "current", use September 2026 as the end date.
 
 CV TEXT:
 ---
@@ -42,9 +62,10 @@ Return EXACTLY this JSON structure with ALL fields filled:
   "github": "",
   "portfolio": "",
   "location": "",
-  "skills_found": [
-    {{"name": "SkillName", "context": "project", "evidence": "Brief quote showing usage"}},
-    {{"name": "SkillName", "context": "mentioned", "evidence": "Listed in skills section"}}
+  "skill_evaluation": [
+    {{"name": "Python", "found": true, "context": "project", "evidence": "Built REST API with Flask"}},
+    {{"name": "React", "found": false, "context": "missing", "evidence": ""}},
+    {{"name": "AWS", "found": true, "context": "mentioned", "evidence": "Listed in skills section"}}
   ],
   "experience_entries": [
     {{
@@ -63,7 +84,9 @@ Return EXACTLY this JSON structure with ALL fields filled:
   ],
   "certifications": [],
   "candidate_summary": "2-3 sentence professional summary highlighting key strengths and main technologies."
-}}"""
+}}
+
+IMPORTANT: The skill_evaluation array MUST contain EXACTLY {len(required_skills)} entries — one for EACH required skill listed above. Do NOT add extra skills. Do NOT skip any."""
 
 
 def build_jd_extraction_prompt(jd_text: str) -> str:

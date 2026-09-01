@@ -5,9 +5,8 @@ Determines whether each required skill is:
   - Listed (mentioned in skills section or raw text only)
   - Missing (not found anywhere)
 
-Includes an extensive synonym/alias resolution map and fuzzy normalization
-so variants like git/github, react/reactjs/react.js, ai/ml/artificial intelligence
-are seamlessly recognized.
+v2: Handles the new structured LLM format where every skill has found=true/false.
+Also includes the original regex/synonym fallback for when LLM is unavailable.
 """
 
 import re
@@ -167,7 +166,7 @@ def evaluate_skills(
     if llm_skills:
         return _evaluate_from_llm(skills, llm_skills)
 
-    # Regex / synonym evaluation
+    # Regex / synonym evaluation (fallback when LLM unavailable)
     exp_text = (sections.get("experience", "") or "").lower()
     proj_text = (sections.get("projects", "") or "").lower()
     context_text = f"{exp_text} {proj_text}"
@@ -214,7 +213,12 @@ def _evaluate_from_llm(
     required_skills: list[str],
     llm_skills: list[dict],
 ) -> dict:
-    """Use LLM-extracted skill data with synonym fallback for maximum accuracy."""
+    """
+    Use LLM-extracted skill data with synonym fallback for maximum accuracy.
+    
+    v2: Supports the new format where each skill has a "context" field that is
+    "missing" when the LLM determined the skill is not present.
+    """
     # Build lookup: skill name (lowercase) → context info
     llm_lookup: dict[str, dict] = {}
     for entry in llm_skills:
@@ -243,16 +247,26 @@ def _evaluate_from_llm(
             ctx = matched_entry.get("context", "mentioned")
             evidence = matched_entry.get("evidence", "")
 
-            if ctx == "project":
+            # v2: If context is "missing", the LLM explicitly said it's not found
+            if ctx == "missing":
+                missing.append(skill)
+                detail.append({
+                    "name": skill, "context": "missing", "evidence": "",
+                })
+            elif ctx == "project":
                 contextual.append(skill)
+                detail.append({
+                    "name": skill,
+                    "context": ctx,
+                    "evidence": evidence,
+                })
             else:
                 stuffed.append(skill)
-
-            detail.append({
-                "name": skill,
-                "context": ctx,
-                "evidence": evidence,
-            })
+                detail.append({
+                    "name": skill,
+                    "context": ctx,
+                    "evidence": evidence,
+                })
         else:
             missing.append(skill)
             detail.append({

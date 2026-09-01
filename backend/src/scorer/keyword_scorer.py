@@ -6,6 +6,7 @@ Computes sparse keyword relevance between JD and CV text.
 import re
 
 from rank_bm25 import BM25Okapi
+from config import BM25_SATURATION_MULTIPLIER, BM25_MIN_DUMMY_DOCS
 
 
 def _tokenize(text: str) -> list[str]:
@@ -35,11 +36,11 @@ def compute_bm25_scores(
     # Prepend query itself to the corpus as the gold-standard ideal document
     full_corpus = [tokenized_query] + tokenized_corpus
     
-    # FIX FOR STREAMING PIPELINE:
-    # BM25 IDF collapses when N is too small (e.g., N=2 when streaming 1 CV at a time).
-    # We append 15 dummy documents to simulate a batch background corpus, restoring proper IDF math.
-    if len(full_corpus) < 10:
-        dummy_docs = [["dummy_background_term_for_idf_stability"] for _ in range(15)]
+    # Pad with dummy documents to simulate a large background corpus.
+    # This prevents IDF collapse when N is small (e.g. streaming 1 CV).
+    if len(full_corpus) < BM25_MIN_DUMMY_DOCS:
+        needed = BM25_MIN_DUMMY_DOCS - len(full_corpus)
+        dummy_docs = [["dummy_background_term_for_idf_stability"] for _ in range(needed)]
         full_corpus.extend(dummy_docs)
 
     bm25 = BM25Okapi(full_corpus)
@@ -49,13 +50,10 @@ def compute_bm25_scores(
     # Saturation threshold maps realistic full technical keyword coverage to 1.0
     saturation_benchmark = max(0.001, float(all_scores[0]))
     
-    # Only apply the massive 0.28 discount factor if we are dealing with a large real corpus where IDF values skew.
-    # When streaming single CVs with dummy background documents, the theoretical max is the full query self-score.
-    if len(corpus_texts) > 5:
-        saturation_benchmark *= 0.28
-    else:
-        # For single streaming, allow a bit of leniency (a resume rarely has EVERY single word in a JD)
-        saturation_benchmark *= 0.65
+    # Use fixed saturation multiplier from config (0.45)
+    # This ensures consistency regardless of batch size
+    saturation_benchmark *= BM25_SATURATION_MULTIPLIER
+    
     candidate_raw_scores = all_scores[1:1 + len(corpus_texts)]
 
     return [

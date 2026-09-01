@@ -1,29 +1,27 @@
 """
 Score calibration and normalization.
 Features:
-- Mid-Tier Opportunity Curve: boosts promising candidates (30% - 75%) into strong consideration,
-  while keeping poor/unqualified CVs strictly below 20%.
+- Fixed Calibration Curve: independent of batch size.
 - Must-have skill penalty: discounts candidates missing key core competencies.
 - Nice-to-have bonus & YOE modifier.
+
+v2: Removed unstable leader-anchored scaling. Made 40%+ scores slightly less strict.
+Importing constants from config.py as single source of truth.
 """
 
 import math
-
-# Calibration constants (matching backend/config.py)
-CALIBRATION_FLOOR = 0.10
-CALIBRATION_CEILING = 0.52
-MUST_HAVE_PENALTY_SEVERITY = 0.85  # Increased from 0.35. A candidate with 0 skills will now lose 85% of their score!
-NICE_TO_HAVE_BONUS_MAX = 0.05
+from config import (
+    CALIBRATION_FLOOR,
+    CALIBRATION_CEILING,
+    MUST_HAVE_PENALTY_SEVERITY,
+    NICE_TO_HAVE_BONUS_MAX
+)
 
 
 def calibrate_scores(raw_scores: list[float]) -> list[float]:
     """
-    Map raw composite scores to 0-100% range using anchor calibration + Opportunity Lift Curve.
-
-    - Scores below 20%: Unqualified/poor match -> NO boost (stays <20%, filtered).
-    - Scores between 30% - 75%: Mid-tier high potential -> receives a dynamic +12% to +18% lift,
-      giving promising candidates with real experience a fair chance.
-    - Scores above 80%: Top candidates -> smoothly tapers to 90%-98%.
+    Map raw composite scores to 0-100% range using a FIXED calibration curve.
+    This guarantees that adding/removing a CV does not shift other CVs' scores.
     """
     anchor_min = CALIBRATION_FLOOR
     anchor_max = CALIBRATION_CEILING
@@ -38,19 +36,20 @@ def calibrate_scores(raw_scores: list[float]) -> list[float]:
 
         base_pct = max(0.0, min(100.0, normalized * 100.0))
 
-        # Mid-tier Opportunity Curve Logic
+        # FIXED CALIBRATION CURVE
+        # Raw 0-20%: Stays low (unqualified)
+        # Raw 20-40%: Weak match, small boost
+        # Raw 40%+: Decent/Strong match, smoothed boost (less strict as requested)
         if base_pct < 20.0:
-            # Below 20%: stays strictly low / poor tier (no boost)
             final_pct = base_pct
-        elif base_pct < 30.0:
-            # Transition ramp (20% - 30%)
-            ramp = (base_pct - 20.0) / 10.0
-            lift = ramp * 6.0
+        elif base_pct < 40.0:
+            ramp = (base_pct - 20.0) / 20.0
+            lift = ramp * 15.0  # +15% boost max at 40
             final_pct = base_pct + lift
         else:
-            # Opportunity Boost for candidates with 30%+ core relevance
-            # Smooth sine-based lift peaked at 50-60% base
-            lift = 18.0 * math.sin(min(1.0, (base_pct - 20.0) / 65.0) * math.pi)
+            # For 40%+, we apply a more generous sine curve to make it less strict
+            # It boosts 40% -> ~60%, 60% -> ~80%, 80% -> ~95%
+            lift = 25.0 * math.sin(min(1.0, (base_pct - 20.0) / 80.0) * math.pi)
             final_pct = min(99.0, base_pct + max(0.0, lift))
 
         calibrated.append(round(final_pct, 2))
@@ -122,45 +121,3 @@ def apply_yoe_modifier(
 
     modifier = round(adjusted - pre_score, 2)
     return adjusted, modifier
-
-
-def apply_leader_relative_scaling(
-    scores: list[float],
-    target_top: float = 94.0,
-    min_qualification_threshold: float = 20.0,
-) -> list[float]:
-    """
-    Leader-Anchored Scaling (Top Candidate Benchmark Normalization):
-    - Anchors the top-performing candidate (e.g. >= 40%) to target_top (~94%).
-    - Generalizes a proportionate boost to other qualified candidates (score >= 20%).
-    - Leaves unqualified candidates (< 20%) strictly at their raw/low score.
-    """
-    if not scores:
-        return scores
-
-    # FIX FOR STREAMING PIPELINE:
-    # Relative scaling (anchoring to the top candidate) only makes mathematical sense 
-    # when processing an actual batch. If N=1, the single candidate becomes their own "leader" 
-    # and gets artificially inflated to 94.0%.
-    if len(scores) < 2:
-        return scores
-
-    max_score = max(scores)
-    if max_score < 35.0:
-        # If even the top candidate is poor (<35%), do not artificially inflate
-        return scores
-
-    scale_ratio = target_top / max_score
-
-    adjusted_scores = []
-    for s in scores:
-        if s >= min_qualification_threshold:
-            # Proportionate boost relative to the top lead candidate
-            boosted = round(min(98.5, s * scale_ratio), 2)
-            adjusted_scores.append(boosted)
-        else:
-            # Below 20%: keep strictly low / unboosted
-            adjusted_scores.append(s)
-
-    return adjusted_scores
-

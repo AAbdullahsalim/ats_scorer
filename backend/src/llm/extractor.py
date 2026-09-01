@@ -1,6 +1,6 @@
 """
 LLM response parser — converts raw LLM JSON into typed Pydantic models.
-Handles malformed responses gracefully.
+Handles both old "skills_found" format and new "skill_evaluation" format.
 """
 
 import logging
@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 def parse_cv_extraction(raw: Optional[dict]) -> Optional[LLMExtraction]:
     """
     Parse the LLM's CV extraction response into a typed LLMExtraction.
+    Supports both:
+    - v1 format: "skills_found" (open-ended list)
+    - v2 format: "skill_evaluation" (forced per-skill with found=true/false)
     Returns None if parsing fails.
     """
     if not raw or not isinstance(raw, dict):
@@ -35,15 +38,37 @@ def parse_cv_extraction(raw: Optional[dict]) -> Optional[LLMExtraction]:
             return default
 
     try:
-        # Parse skills
+        # Parse skills — support BOTH formats for backward compatibility
         skills = []
-        for s in raw.get("skills_found", []):
-            if isinstance(s, dict):
-                skills.append(SkillMatch(
-                    name=str(s.get("name", "")),
-                    context=str(s.get("context", "mentioned")),
-                    evidence=str(s.get("evidence", "")),
-                ))
+        
+        # v2 format: skill_evaluation with found=true/false
+        skill_eval = raw.get("skill_evaluation", [])
+        if skill_eval:
+            for s in skill_eval:
+                if isinstance(s, dict):
+                    # In v2 format, we include ALL skills (found and missing)
+                    # The SkillMatch object carries the found status
+                    found = s.get("found", True)
+                    context = s.get("context", "mentioned")
+                    
+                    # If found is explicitly false, set context to "missing"
+                    if not found:
+                        context = "missing"
+                    
+                    skills.append(SkillMatch(
+                        name=str(s.get("name", "")),
+                        context=context,
+                        evidence=str(s.get("evidence", "")),
+                    ))
+        else:
+            # v1 fallback: skills_found (old open-ended format)
+            for s in raw.get("skills_found", []):
+                if isinstance(s, dict):
+                    skills.append(SkillMatch(
+                        name=str(s.get("name", "")),
+                        context=str(s.get("context", "mentioned")),
+                        evidence=str(s.get("evidence", "")),
+                    ))
 
         # Parse experience entries
         experience = []
