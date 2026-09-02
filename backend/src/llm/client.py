@@ -61,6 +61,7 @@ class LLMClient:
                 self._groq_client = OpenAI(
                     base_url="https://api.groq.com/openai/v1",
                     api_key=GROQ_API_KEY,
+                    max_retries=0, # Disable auto-retries to instantly trigger Gemini fallback
                 )
                 self._groq_available = True
                 logger.info("Groq client initialized (qwen3.8-27b primary, temp=0, seed=42)")
@@ -155,7 +156,7 @@ class LLMClient:
             from google.genai import types
 
             response = self._gemini_client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.0,       # DETERMINISTIC

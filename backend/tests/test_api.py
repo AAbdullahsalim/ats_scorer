@@ -1,38 +1,66 @@
+"""Quick API test against the live backend."""
 import requests
 import json
-import os
+import time
+import urllib.request
 
-# Create dummy files
-with open("dummy_jd.txt", "w") as f:
-    f.write("Looking for a Python developer with 2 years of experience.")
-    
-with open("dummy_cv.txt", "w") as f:
-    f.write("Jane Doe\njane@example.com\nPython Developer\nEducation: BS Computer Science from COMSATS University Islamabad, 2018-2022.\nExperience: 3 years as Python Dev.")
+# Wait for server to be ready
+for i in range(8):
+    try:
+        r = urllib.request.urlopen('http://localhost:8001/health', timeout=2)
+        print('Server ready:', r.status)
+        break
+    except Exception as e:
+        print(f'Attempt {i+1}: waiting... ({e})')
+        time.sleep(2)
+else:
+    print("Server not available!")
+    exit(1)
 
+cv_paths = [
+    'sample_cvs/Jose Morales Patching _ Senior Software Engineer, Java NinjaOne.pdf',
+    'sample_cvs/Abby Syeid (1).pdf',
+    'sample_cvs/Abdullah-Salim-resume (2).pdf',
+]
+jd_path = 'jds/SE JD.pdf'
+
+files_to_send = []
+open_files = []
+fh = open(jd_path, 'rb')
+open_files.append(fh)
+files_to_send.append(('jd_file', ('SE JD.pdf', fh, 'application/pdf')))
+
+for p in cv_paths:
+    fh = open(p, 'rb')
+    open_files.append(fh)
+    files_to_send.append(('cv_files', (p.split('/')[-1], fh, 'application/pdf')))
+
+print(f"\nSending {len(cv_paths)} CVs + 1 JD...")
 try:
-    with open("dummy_jd.txt", "rb") as jd, open("dummy_cv.txt", "rb") as cv:
-        files = {
-            "jd_file": ("dummy_jd.txt", jd, "text/plain"),
-            "cv_files": ("dummy_cv.txt", cv, "text/plain")
-        }
-        data = {
-            "target_yoe": 0
-        }
-        
-        response = requests.post("http://localhost:8001/analyze", files=files, data=data)
-        
-        print("Status Code:", response.status_code)
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            candidates = res_json.get("candidates", [])
-            for i, c in enumerate(candidates):
-                print(f"Candidate {i}:")
-                print(f"  Name: {c.get('candidate_name')}")
-                print(f"  Universities: {c.get('normalized_universities')}")
-                print(f"  Education: {json.dumps(c.get('education', []), indent=2)}")
-        else:
-            print("Response:", response.text)
+    resp = requests.post(
+        'http://localhost:8001/analyze',
+        files=files_to_send,
+        data={'target_yoe': 3.0},
+        timeout=180
+    )
+    print(f'Status: {resp.status_code}')
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"\nLLM mode: {data['llm_mode']}")
+        print(f"Processing time: {data['processing_time_seconds']}s\n")
+        print("Candidates:")
+        print("-" * 80)
+        for c in data['candidates']:
+            name = c['candidate_name']
+            score = c['final_score_pct']
+            yoe = c['candidate_yoe']
+            llm = c['llm_enhanced']
+            matched = len(c['matched_skills'])
+            missing = len(c['missing_skills'])
+            print(f"  {name:<40} | Score: {score:5.1f}% | YOE: {yoe:4.1f} | LLM: {str(llm):<5} | Matched: {matched} | Missing: {missing}")
+        print("-" * 80)
+    else:
+        print(f'Error: {resp.text[:1000]}')
 finally:
-    os.remove("dummy_jd.txt")
-    os.remove("dummy_cv.txt")
+    for fh in open_files:
+        fh.close()

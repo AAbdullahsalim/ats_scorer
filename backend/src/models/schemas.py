@@ -101,6 +101,7 @@ class ScoringAudit(BaseModel):
     composite_base_pct: float = 0.0
     must_have_penalty_pct: float = 0.0
     nice_to_have_bonus_pct: float = 0.0
+    role_match_bonus_pct: float = 0.0
     yoe_modifier_pct: float = 0.0
     calibrated_final_pct: float = 0.0
 
