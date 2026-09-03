@@ -21,6 +21,9 @@ export async function analyzeCandidates(
 
   const response = await fetch(`${API_URL}/analyze`, {
     method: "POST",
+    headers: {
+      "ngrok-skip-browser-warning": "true",
+    },
     body: formData,
     signal,
   });
@@ -48,6 +51,9 @@ export async function analyzeSingleCandidate(
 
   const response = await fetch(`${API_URL}/analyze-single`, {
     method: "POST",
+    headers: {
+      "ngrok-skip-browser-warning": "true",
+    },
     body: formData,
     signal,
   });
@@ -65,6 +71,9 @@ export async function parseJd(jdFile: File) {
 
   const response = await fetch(`${API_URL}/parse-jd`, {
     method: "POST",
+    headers: {
+      "ngrok-skip-browser-warning": "true",
+    },
     body: formData,
   });
 
@@ -80,6 +89,7 @@ export async function exportReport(candidates: any[]) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
     },
     body: JSON.stringify(candidates),
   });
@@ -105,6 +115,9 @@ export async function convertDocxToPdf(file: File): Promise<string> {
 
   const response = await fetch(`${API_URL}/convert-docx`, {
     method: "POST",
+    headers: {
+      "ngrok-skip-browser-warning": "true",
+    },
     body: formData,
   });
 
