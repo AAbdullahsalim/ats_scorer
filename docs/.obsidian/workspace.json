@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "c8b32e5e0fb4ba62",
+        "id": "5fde291d55ba386e",
         "type": "tabs",
         "children": [
           {
-            "id": "7b043d8709b90386",
+            "id": "c60f80437d86b9ea",
             "type": "leaf",
             "state": {
               "type": "graph",
@@ -181,13 +181,34 @@
       "bases:Create new base": false
     }
   },
-  "active": "7b043d8709b90386",
+  "active": "c60f80437d86b9ea",
   "lastOpenFiles": [
-    "Index.md",
-    "Frontend Application.md",
-    "page.tsx.md",
-    "handleJdUpload.md",
-    "api.ts.md",
-    "CandidateTable.tsx.md"
+    "workflow/frontend_src_components_CircularGallery.md",
+    "workflow/frontend_src_registry_magicui_interactive-hover-button.md",
+    "workflow/frontend_src_registry_magicui_animated-circular-progress-bar.md",
+    "workflow/frontend_src_components_UploadSection.md",
+    "workflow/frontend_src_components_UniversityFilter.md",
+    "workflow/frontend_src_components_SpecularButton.md",
+    "workflow/backend_src_scorer_calibrator.md",
+    "workflow/backend_src_parser_text_cleaner.md",
+    "workflow/frontend_src_components_lightswind_cosmic-dust.md",
+    "workflow/frontend_src_registry_magicui_noise-texture.tsx.md",
+    "workflow/frontend_src_registry_magicui_interactive-hover-button.tsx.md",
+    "workflow/frontend_src_registry_magicui_animated-circular-progress-bar.tsx.md",
+    "workflow/frontend_src_components_lightswind_cosmic-dust.tsx.md",
+    "workflow/frontend_src_components_UploadSection.tsx.md",
+    "workflow/frontend_src_components_UniversityFilter.tsx.md",
+    "workflow/frontend_src_components_SplitFlapText.tsx.md",
+    "workflow/frontend_src_components_SpecularButton.tsx.md",
+    "workflow/frontend_src_lib_utils.md",
+    "workflow/frontend_src_lib_constants_universities.md",
+    "workflow/frontend_src_lib_api.md",
+    "workflow/frontend_src_hooks_useCandidateAnalysis.md",
+    "workflow/frontend_src_components_SkillsFilter.md",
+    "workflow/frontend_src_components_ScrollExpand.md",
+    "workflow/frontend_src_components_ProgressBar.md",
+    "workflow/frontend_src_components_GridLoader.md",
+    "workflow/frontend_src_components_GradientWaves.md",
+    "workflow"
   ]
 }

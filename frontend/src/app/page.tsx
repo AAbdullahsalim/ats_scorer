@@ -11,6 +11,7 @@ import { NoiseTexture } from "@/registry/magicui/noise-texture";
 import CosmicDust from "@/components/lightswind/cosmic-dust";
 import UploadSection from "@/components/UploadSection";
 import ActionControls from "@/components/ActionControls";
+import { Zap, Wand2 } from "lucide-react";
 
 import BatchEngine from "@/components/BatchEngine";
 import SkillsFilter from "@/components/SkillsFilter";
@@ -35,6 +36,7 @@ export default function Home() {
   const [cvFiles, setCvFiles] = useState<File[]>([]);
   const [showJdDropdown, setShowJdDropdown] = useState(false);
   const [showCvDropdown, setShowCvDropdown] = useState(false);
+  const [isFastMode, setIsFastMode] = useState(false);
 
   const jdDropdownRef = useRef<HTMLDivElement>(null);
   const cvDropdownRef = useRef<HTMLDivElement>(null);
@@ -168,6 +170,9 @@ export default function Home() {
           });
           setFileUrls(urls);
         }
+        
+        const cachedFastMode = await localforage.getItem<boolean>('cached_fast_mode');
+        if (cachedFastMode !== null) setIsFastMode(cachedFastMode);
       } catch (e) {
         console.error("Failed to hydrate session cache", e);
       }
@@ -223,22 +228,25 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen flex flex-col items-center p-8 lg:p-24 pb-32 overflow-hidden bg-background">
-      <CosmicDust
-        className="fixed inset-0 pointer-events-none z-0"
-        particleColors={["#5e8d77", "#34d399", "#10b981", "#6ee7b7", "#a7f3d0", "#ffffff"]}
-        particleCount={80}
-        speed={0.2}
-        opacity={0.5}
-        minSize={0.8}
-        maxSize={2.2}
-      />
-
-      <NoiseTexture
-        className={cn(
-          "fixed inset-0 pointer-events-none z-0 opacity-45 mix-blend-overlay",
-          "mask-[radial-gradient(circle_at_center,white_75%,transparent_100%)]"
-        )}
-      />
+      {!isFastMode && (
+        <>
+          <CosmicDust
+            className="fixed inset-0 pointer-events-none z-0"
+            particleColors={["#5e8d77", "#34d399", "#10b981", "#6ee7b7", "#a7f3d0", "#ffffff"]}
+            particleCount={80}
+            speed={0.2}
+            opacity={0.5}
+            minSize={0.8}
+            maxSize={2.2}
+          />
+          <NoiseTexture
+            className={cn(
+              "fixed inset-0 pointer-events-none z-0 opacity-45 mix-blend-overlay",
+              "mask-[radial-gradient(circle_at_center,white_75%,transparent_100%)]"
+            )}
+          />
+        </>
+      )}
 
       <div className="relative z-10 w-full flex flex-col items-center">
         <div className="flex flex-col md:flex-row items-center justify-between w-full max-w-7xl mt-6 border-b border-white/10 pb-6">
@@ -249,6 +257,24 @@ export default function Home() {
             <h1 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-white/40">
               ATS<span className="text-primary">SCORER</span>
             </h1>
+            
+            <button
+              onClick={() => {
+                const newMode = !isFastMode;
+                setIsFastMode(newMode);
+                localforage.setItem('cached_fast_mode', newMode);
+              }}
+              className={cn(
+                "ml-6 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-300 border backdrop-blur-md",
+                isFastMode 
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 shadow-sm" 
+                  : "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20 shadow-[0_0_15px_rgba(16,185,129,0.2)] hover:shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+              )}
+              title={isFastMode ? "Fast Mode Active (Animations Disabled)" : "Fancy Mode Active (Animations Enabled)"}
+            >
+              {isFastMode ? <Zap size={14} className="animate-pulse" /> : <Wand2 size={14} />}
+              {isFastMode ? "FAST" : "FANCY"}
+            </button>
           </div>
 
           <UploadSection
