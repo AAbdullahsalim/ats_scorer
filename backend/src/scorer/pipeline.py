@@ -196,17 +196,19 @@ class ScoringPipeline:
 
         # === Role Match Booster ===
         role_bonus_amounts = []
-        jd_intro = jd_text[:250] # Extract first 250 chars of JD which usually has the title
+        jd_intro = jd_text[:500].lower() # Extract first 500 chars of JD which usually has the title
         for i, c in enumerate(candidates):
             bonus = 0.0
             if c.llm_data and c.llm_data.current_role:
-                # Use semantic scorer to compare current role to JD intro
-                role_sim = self.semantic.compute_similarities(c.llm_data.current_role, [jd_intro])[0]
-                # If similarity is decently high, apply up to 15% bonus
-                if role_sim > 0.20:
-                    # Scale bonus based on how strong the match is
-                    bonus = round(15.0 * role_sim, 2)
-                    calibrated[i] = min(100.0, calibrated[i] + bonus)
+                # Use word-based string matching instead of embeddings to avoid length-dilution
+                role_words = [w for w in c.llm_data.current_role.lower().split() if len(w) > 3]
+                if role_words:
+                    match_count = sum(1 for w in role_words if w in jd_intro)
+                    match_ratio = match_count / len(role_words)
+                    
+                    if match_ratio >= 0.5:
+                        bonus = 15.0 # Flat 15% bonus if title matches JD intro well
+                        calibrated[i] = min(100.0, calibrated[i] + bonus)
             role_bonus_amounts.append(bonus)
 
         # (Removed Leader-Anchored Relative Normalization per v2 plan for score stability)

@@ -101,7 +101,7 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
             {/* 2-COLUMN BALANCED CONTENT GRID */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10">
               
-              {/* LEFT COLUMN: Summary & Sub-scores */}
+              {/* LEFT COLUMN: Summary & Score Modifiers */}
               <div className="flex flex-col gap-8">
                 <div>
                   <h3 className="text-base font-bold flex items-center gap-2.5 mb-3.5 text-white">
@@ -113,12 +113,20 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
                 </div>
 
                 <div>
-                  <h3 className="text-base font-bold mb-3.5 text-white">Explainable Sub-Scores</h3>
-                  <div className="grid grid-cols-2 gap-3.5">
-                    <ScoreCard label="Skill Match" value={audit?.subscores?.skill_match} max={35} />
-                    <ScoreCard label="Recent Exp Match" value={audit?.subscores?.recent_exp} max={45} />
-                    <ScoreCard label="Older Exp Match" value={audit?.subscores?.older_exp} max={20} />
-                    <ScoreCard label="Keyword (BM25)" value={audit?.subscores?.bm25_keyword} max={100} />
+                  <h3 className="text-base font-bold mb-3.5 text-white">Score Modifiers (How skills affected the score)</h3>
+                  <div className="flex flex-col gap-3 p-6 bg-secondary/10 rounded-2xl border border-border text-gray-300 text-sm shadow-[inset_0_2px_8px_rgba(0,0,0,0.4)]">
+                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
+                      <span className="text-gray-400">Mandatory Skill Penalty</span>
+                      <span className="font-mono font-bold text-red-400">
+                        {audit?.must_have_penalty_pct < 0 ? "" : "-"}{audit?.must_have_penalty_pct || 0}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Role Match Booster</span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        +{audit?.role_match_bonus_pct || 0}%
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -132,25 +140,25 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
                   </h3>
                   <div className="flex flex-col gap-4 bg-black/30 p-5 rounded-2xl border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
                     <ProgressBarItem 
-                      label="Skills Section" 
+                      label="Tech Stack Alignment" 
                       pct={(audit?.subscores?.skill_match / 35) * 100 || 0} 
                       gradient="bg-gradient-to-r from-[#2d6a4f] to-[#52b788]"
                       glowColor="rgba(82,183,136,0.3)" 
                     />
                     <ProgressBarItem 
-                      label="Recent Experience" 
+                      label="Recent Role Relevance" 
                       pct={(audit?.subscores?.recent_exp / 45) * 100 || 0} 
                       gradient="bg-gradient-to-r from-[#1b4332] to-[#40916c]"
                       glowColor="rgba(64,145,108,0.3)" 
                     />
                     <ProgressBarItem 
-                      label="Older Experience" 
+                      label="Past Role Relevance" 
                       pct={(audit?.subscores?.older_exp / 20) * 100 || 0} 
                       gradient="bg-gradient-to-r from-[#081c15] to-[#2d6a4f]"
                       glowColor="rgba(45,106,79,0.25)" 
                     />
                     <ProgressBarItem 
-                      label="BM25 Keywords" 
+                      label="Keyword Matching" 
                       pct={audit?.subscores?.bm25_keyword || 0} 
                       gradient="bg-gradient-to-r from-[#1f4e5b] to-[#5e8d77]"
                       glowColor="rgba(94,141,119,0.35)" 
@@ -194,18 +202,6 @@ export default function GamerProfileModal({ candidate, onClose, rank }: GamerPro
 }
 
 // Helpers
-
-function ScoreCard({ label, value, max }: { label: string, value: number, max: number }) {
-  return (
-    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-between shadow-[inset_0_2px_8px_rgba(0,0,0,0.5)]">
-      <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold">{label}</span>
-      <div className="mt-2 text-2xl font-black text-gray-100 flex items-baseline gap-1">
-        <CountUp to={value || 0} decimals={1} duration={1} />
-        <span className="text-xs text-gray-500 font-normal">/ {max} pts</span>
-      </div>
-    </div>
-  );
-}
 
 function ProgressBarItem({ 
   label, 
