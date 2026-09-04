@@ -47,6 +47,8 @@ For each skill, classify its context:
 For experience_entries, extract EACH job/role with its start and end dates.
 Calculate the months field as the number of months between start and end.
 If end is "present" or "current", use September 2026 as the end date.
+CRITICAL: Do NOT include education, degrees, or university coursework in experience_entries.
+If the candidate has no professional experience, set experience_entries to [] and total_yoe to 0.0.
 
 CV TEXT:
 ---
@@ -77,7 +79,7 @@ Return EXACTLY this JSON structure with ALL fields filled:
       "key_work": "One-line description of main achievement"
     }}
   ],
-  "total_yoe": 3.5,
+  "total_yoe": 0.0,
   "current_role": "",
   "education": [
     {{"degree": "BS Computer Science", "institution": "University Name", "year": "2018-2022"}}
