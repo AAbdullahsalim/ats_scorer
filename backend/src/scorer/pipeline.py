@@ -185,8 +185,14 @@ class ScoringPipeline:
         for i, c in enumerate(candidates):
             sections_dict = c.sections.model_dump()
             llm_yoe = c.llm_data.total_yoe if c.llm_data else None
+            llm_experience_entries = c.llm_data.experience_entries if c.llm_data else None
 
-            yoe = extract_yoe(sections_dict, c.full_text, llm_yoe=llm_yoe)
+            yoe = extract_yoe(
+                sections_dict, 
+                c.full_text, 
+                llm_yoe=llm_yoe,
+                llm_experience_entries=llm_experience_entries
+            )
             yoe_values.append(yoe)
 
             calibrated[i], yoe_mod = apply_yoe_modifier(
