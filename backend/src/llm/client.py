@@ -156,7 +156,7 @@ class LLMClient:
             from google.genai import types
 
             response = self._gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.0,       # DETERMINISTIC
