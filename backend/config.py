@@ -26,7 +26,7 @@ LLM_DISABLED: bool = os.getenv("LLM_DISABLED", "false").lower() == "true"
 
 # === Backend Config ===
 BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8001"))
-CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"]
+CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "https://ats-scorer-tau.vercel.app"]
 
 # === Model Config ===
 EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
